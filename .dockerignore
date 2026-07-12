@@ -1,0 +1,9 @@
+# Não enviar artefatos de build nem segredos para o contexto da imagem
+**/bin/
+**/obj/
+**/*.user
+.git
+.vs
+.idea
+# A chave pública do lease é para o plugin, não para o servidor
+lease-public-key.txt

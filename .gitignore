@@ -1,0 +1,14 @@
+# Build
+bin/
+obj/
+*.user
+
+# Rider / VS
+.idea/
+.vs/
+
+# Segredos locais (NUNCA versionar)
+appsettings.*.local.json
+*.secret.json
+# Lembrete: a connection string e a Jwt:Key ficam em `dotnet user-secrets`,
+# que é guardado em %APPDATA%\Microsoft\UserSecrets — fora do repositório.
