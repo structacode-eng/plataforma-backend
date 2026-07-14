@@ -157,9 +157,10 @@
       const body = $('usersBody'); body.innerHTML = '';
       for (const u of users) {
         const badge = u.isActive ? '<span class="badge on">ativo</span>' : '<span class="badge off">inativo</span>';
-        const act = u.isActive
+        const resetBtn = `<button class="ghost" data-act="reset" data-email="${esc(u.email)}">Senha</button>`;
+        const act = resetBtn + ' ' + (u.isActive
           ? `<button class="danger" data-act="disable" data-email="${esc(u.email)}">Desativar</button>`
-          : `<button class="ok" data-act="enable" data-email="${esc(u.email)}">Reativar</button>`;
+          : `<button class="ok" data-act="enable" data-email="${esc(u.email)}">Reativar</button>`);
         const tr = document.createElement('tr');
         tr.innerHTML = `<td>${esc(u.email)}</td><td>${esc(u.role)}</td><td>${badge}</td>` +
                        `<td>${relTime(u.lastSeenAtUtc)}</td><td>${u.loginCount ?? 0}</td>` +
@@ -187,6 +188,21 @@
       if (res.ok) loadUsers(); else $('usersMsg').textContent = 'Falha na ação.';
     }
 
+    async function resetPassword(em) {
+      const pw = prompt('Nova senha para ' + em + ' (mín. 8 caracteres):');
+      if (pw === null) return;                                  // cancelou
+      if (pw.length < 8) { alert('Senha muito curta — mínimo 8 caracteres.'); return; }
+      const res = await apiFetch('/v1/admin/users/' + encodeURIComponent(em) + '/reset-password',
+        { method:'POST', body: JSON.stringify({ password: pw }) });
+      if (res.ok) {
+        $('usersMsg').textContent = '✓ Senha redefinida para ' + em + '.';
+        alert('Senha redefinida!\n\n' + em + '\nNova senha: ' + pw + '\n\nPasse esta senha para a pessoa.');
+      } else {
+        let m = 'Falha ao redefinir a senha.'; try { m = (await res.json()).error || m; } catch {}
+        $('usersMsg').textContent = m;
+      }
+    }
+
     $('loginBtn').onclick = login;
     $('loginPass').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
     $('logoutBtn').onclick = () => { clearTokens(); show('login'); };
@@ -194,7 +210,9 @@
     $('refreshBtn').onclick = loadUsers;
     $('usersBody').addEventListener('click', e => {
       const b = e.target.closest('button[data-act]');
-      if (b) toggle(b.dataset.email, b.dataset.act);
+      if (!b) return;
+      if (b.dataset.act === 'reset') resetPassword(b.dataset.email);
+      else toggle(b.dataset.email, b.dataset.act);
     });
 
     // Retoma sessão se houver token salvo.

@@ -2,6 +2,7 @@ namespace Plataforma.Application.Licensing;
 
 // ---------- Admin (emissão/catálogo) ----------
 public record CreateUserRequest(string Email, string Password, string? Role);
+public record ResetPasswordRequest(string Password);
 public record UserDto(string Email, string Role, bool IsActive, DateTime CreatedAtUtc, DateTime? LastSeenAtUtc, int LoginCount);
 public record CreatePluginRequest(string Slug, string Name, string? Description);
 public record CreatePlanRequest(string Slug, string Name, string BillingCycle, int DeviceLimit, string[] PluginSlugs);

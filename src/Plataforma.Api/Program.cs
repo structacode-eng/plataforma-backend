@@ -1,5 +1,8 @@
 using System.Text;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 using Plataforma.Api.Seed;
 using Plataforma.Application.Auth;
@@ -51,6 +54,30 @@ builder.Services
 
 builder.Services.AddAuthorization();
 
+// IP real do cliente atrás do proxy do Railway (X-Forwarded-For) — base do rate limiting.
+builder.Services.Configure<ForwardedHeadersOptions>(o =>
+{
+    o.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    o.KnownNetworks.Clear(); // no Railway o IP do proxy é dinâmico
+    o.KnownProxies.Clear();
+});
+
+// Rate limiting: backstop global por IP + política estrita "auth" contra força-bruta no login.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(ctx =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            ctx.Connection.RemoteIpAddress?.ToString() ?? "sem-ip",
+            _ => new FixedWindowRateLimiterOptions { PermitLimit = 300, Window = TimeSpan.FromMinutes(1) }));
+
+    options.AddPolicy("auth", ctx =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            ctx.Connection.RemoteIpAddress?.ToString() ?? "sem-ip",
+            _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1) }));
+});
+
 var app = builder.Build();
 
 // Garante o Owner inicial (a partir de Seed:Owner:* em segredo/config).
@@ -62,9 +89,15 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+// Resolve o IP real do cliente a partir do X-Forwarded-For (antes de qualquer coisa que leia IP).
+app.UseForwardedHeaders();
+
 // Painel administrativo estático (wwwroot/admin/index.html), servido pela própria API.
 app.UseDefaultFiles();
 app.UseStaticFiles();
+
+app.UseRouting();
+app.UseRateLimiter();
 
 // TLS é terminado na borda (proxy/host) em produção — Cap. 17. Local roda em HTTP.
 app.UseAuthentication();

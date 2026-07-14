@@ -214,6 +214,18 @@ public sealed class AdminCatalogService
         return Result<bool>.Ok(true);
     }
 
+    /// <summary>Redefine a senha de um usuário (RF-AUTH-006, por ação do Owner). Vale para logins futuros.</summary>
+    public async Task<Result<bool>> ResetPasswordAsync(string? email, string? newPassword, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(newPassword) || newPassword.Length < 8)
+            return Result<bool>.Fail("A senha deve ter ao menos 8 caracteres.", "weak_password");
+        var user = await _users.GetByEmailAsync(User.Normalize(email ?? ""), ct);
+        if (user is null) return Result<bool>.Fail("Usuário não encontrado.", "user_not_found");
+        user.SetPasswordHash(_hasher.Hash(newPassword));
+        await _uow.SaveChangesAsync(ct);
+        return Result<bool>.Ok(true);
+    }
+
     private async Task<Result<bool>> ChangeStatusAsync(Guid licenseId, Action<License> action, CancellationToken ct)
     {
         var license = await _licenses.GetByIdAsync(licenseId, ct);

@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Plataforma.Api.Auth;
 using Plataforma.Application.Auth;
 
@@ -18,6 +19,7 @@ public sealed class CompatAuthController : ControllerBase
     public CompatAuthController(DesktopAuthService svc) => _svc = svc;
 
     [HttpPost("/auth/login")]
+    [EnableRateLimiting("auth")]
     public async Task<IActionResult> Login([FromBody] DesktopLoginRequest req, CancellationToken ct)
     {
         var r = await _svc.LoginAsync(req?.Email, req?.Password, ct);

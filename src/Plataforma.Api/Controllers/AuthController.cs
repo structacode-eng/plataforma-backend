@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Plataforma.Application.Auth;
 using Plataforma.Application.Common;
 
@@ -19,10 +20,12 @@ public sealed class AuthController : ControllerBase
             new { error = "Cadastro fechado. Contate o administrador.", code = "registration_closed" });
 
     [HttpPost("login")]
+    [EnableRateLimiting("auth")]
     public async Task<IActionResult> Login([FromBody] LoginRequest req, CancellationToken ct)
         => ToResponse(await _auth.LoginAsync(req, ct));
 
     [HttpPost("refresh")]
+    [EnableRateLimiting("auth")]
     public async Task<IActionResult> Refresh([FromBody] RefreshRequest req, CancellationToken ct)
         => ToResponse(await _auth.RefreshAsync(req, ct));
 

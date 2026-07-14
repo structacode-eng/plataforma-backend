@@ -75,6 +75,12 @@ public sealed class AdminController : ControllerBase
     public async Task<IActionResult> EnableUser(string email, CancellationToken ct)
         => Respond(await _svc.EnableUserAsync(email, ct));
 
+    // Redefine a senha de um usuário (Owner apenas). A pessoa passa a entrar com a nova senha.
+    [HttpPost("users/{email}/reset-password")]
+    [Authorize(Roles = "Owner")]
+    public async Task<IActionResult> ResetPassword(string email, [FromBody] ResetPasswordRequest req, CancellationToken ct)
+        => Respond(await _svc.ResetPasswordAsync(email, req?.Password, ct));
+
     private IActionResult Respond<T>(Result<T> r, int successCode = StatusCodes.Status200OK)
     {
         if (r.Success) return StatusCode(successCode, r.Value);
