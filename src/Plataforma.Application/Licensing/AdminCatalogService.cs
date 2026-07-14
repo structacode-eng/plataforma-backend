@@ -16,19 +16,47 @@ public sealed class AdminCatalogService
     private readonly ILicenseRepository _licenses;
     private readonly IUserRepository _users;
     private readonly IDeviceRepository _devices;
+    private readonly IPasswordHasher _hasher;
     private readonly IUnitOfWork _uow;
 
     public AdminCatalogService(
         IPluginRepository plugins, IPlanRepository plans, ILicenseRepository licenses,
-        IUserRepository users, IDeviceRepository devices, IUnitOfWork uow)
+        IUserRepository users, IDeviceRepository devices, IPasswordHasher hasher, IUnitOfWork uow)
     {
         _plugins = plugins;
         _plans = plans;
         _licenses = licenses;
         _users = users;
         _devices = devices;
+        _hasher = hasher;
         _uow = uow;
     }
+
+    /// <summary>Cria uma conta (RF-AUTH-001 por ação administrativa). Cadastro público está fechado;
+    /// só o Owner cria contas. A conta já nasce ativa e verificada.</summary>
+    public async Task<Result<UserDto>> CreateUserAsync(string? email, string? password, string? role, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(email) || !email.Contains('@'))
+            return Result<UserDto>.Fail("E-mail inválido.", "invalid_email");
+        if (string.IsNullOrEmpty(password) || password.Length < 8)
+            return Result<UserDto>.Fail("A senha deve ter ao menos 8 caracteres.", "weak_password");
+
+        var normalized = User.Normalize(email);
+        if (await _users.ExistsByEmailAsync(normalized, ct))
+            return Result<UserDto>.Fail("E-mail já cadastrado.", "email_taken");
+
+        var userRole = ParseRole(role);
+        var user = new User(normalized, _hasher.Hash(password), userRole);
+        user.MarkEmailVerified(); // criada pelo Owner → já verificada
+        await _users.AddAsync(user, ct);
+        await _uow.SaveChangesAsync(ct);
+
+        return Result<UserDto>.Ok(new UserDto(user.Email, userRole.ToString()));
+    }
+
+    private static UserRole ParseRole(string? role)
+        => (!string.IsNullOrWhiteSpace(role) && Enum.TryParse<UserRole>(role, ignoreCase: true, out var r) && Enum.IsDefined(r))
+            ? r : UserRole.Customer;
 
     public async Task<Result<PluginDto>> CreatePluginAsync(CreatePluginRequest req, CancellationToken ct = default)
     {

@@ -52,6 +52,12 @@ public sealed class AdminController : ControllerBase
     public async Task<IActionResult> ResetDevice(Guid id, CancellationToken ct)
         => Respond(await _svc.ResetDeviceAsync(id, ct));
 
+    // Cria uma conta (cadastro público está fechado; só o Owner cria contas).
+    [HttpPost("users")]
+    [Authorize(Roles = "Owner")]
+    public async Task<IActionResult> CreateUser([FromBody] CreateUserRequest req, CancellationToken ct)
+        => Respond(await _svc.CreateUserAsync(req?.Email, req?.Password, req?.Role, ct), StatusCodes.Status201Created);
+
     // Revoga/reativa o acesso de um usuário (login desktop). Owner apenas.
     [HttpPost("users/{email}/disable")]
     [Authorize(Roles = "Owner")]
@@ -70,7 +76,7 @@ public sealed class AdminController : ControllerBase
         {
             "user_not_found" or "plan_not_found" or "plugin_not_found"
                 or "license_not_found" or "device_not_found" => StatusCodes.Status404NotFound,
-            "slug_taken" => StatusCodes.Status409Conflict,
+            "slug_taken" or "email_taken" => StatusCodes.Status409Conflict,
             _ => StatusCodes.Status400BadRequest
         };
         return StatusCode(status, new { error = r.Error, code = r.Code });

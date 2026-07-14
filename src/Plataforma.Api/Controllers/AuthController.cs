@@ -12,9 +12,11 @@ public sealed class AuthController : ControllerBase
     private readonly AuthService _auth;
     public AuthController(AuthService auth) => _auth = auth;
 
+    // Cadastro público FECHADO — somente o Owner cria contas (POST /v1/admin/users).
     [HttpPost("register")]
-    public async Task<IActionResult> Register([FromBody] RegisterRequest req, CancellationToken ct)
-        => ToResponse(await _auth.RegisterAsync(req, ct), StatusCodes.Status201Created);
+    public IActionResult Register()
+        => StatusCode(StatusCodes.Status403Forbidden,
+            new { error = "Cadastro fechado. Contate o administrador.", code = "registration_closed" });
 
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest req, CancellationToken ct)
