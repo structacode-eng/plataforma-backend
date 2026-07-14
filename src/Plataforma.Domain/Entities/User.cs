@@ -16,6 +16,8 @@ public sealed class User
     public UserRole Role { get; private set; } = UserRole.Customer;
     public DateTime CreatedAtUtc { get; private set; } = DateTime.UtcNow;
     public DateTime? UpdatedAtUtc { get; private set; }
+    public DateTime? LastSeenAtUtc { get; private set; }
+    public int LoginCount { get; private set; }
 
     private User() { } // EF Core
 
@@ -56,6 +58,16 @@ public sealed class User
         IsActive = true;
         UpdatedAtUtc = DateTime.UtcNow;
     }
+
+    /// <summary>Registra um login: incrementa o contador e atualiza o último acesso.</summary>
+    public void RegisterLogin()
+    {
+        LoginCount++;
+        LastSeenAtUtc = DateTime.UtcNow;
+    }
+
+    /// <summary>Marca atividade (heartbeat do /auth/me) sem contar como login.</summary>
+    public void MarkSeen() => LastSeenAtUtc = DateTime.UtcNow;
 
     public static string Normalize(string email) => email.Trim().ToLowerInvariant();
 }

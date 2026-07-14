@@ -75,7 +75,7 @@
           <button id="refreshBtn" class="ghost">Atualizar</button>
         </div>
         <table>
-          <thead><tr><th>E-mail</th><th>Papel</th><th>Status</th><th>Criado</th><th style="text-align:right">Ações</th></tr></thead>
+          <thead><tr><th>E-mail</th><th>Papel</th><th>Status</th><th>Último acesso</th><th>Logins</th><th style="text-align:right">Ações</th></tr></thead>
           <tbody id="usersBody"></tbody>
         </table>
         <div id="usersMsg" class="msg"></div>
@@ -140,16 +140,30 @@
       } catch (e) { $('usersMsg').textContent = 'Sessão expirada — entre de novo.'; }
     }
 
+    function relTime(iso) {
+      if (!iso) return '<span class="muted">nunca</span>';
+      const diff = Date.now() - new Date(iso).getTime();
+      const min = Math.floor(diff/60000), h = Math.floor(min/60), d = Math.floor(h/24);
+      let label;
+      if (min < 1) label = 'agora mesmo';
+      else if (min < 60) label = 'há ' + min + ' min';
+      else if (h < 24) label = 'há ' + h + 'h';
+      else if (d < 30) label = 'há ' + d + (d > 1 ? ' dias' : ' dia');
+      else label = new Date(iso).toLocaleDateString('pt-BR');
+      return `<span title="${esc(new Date(iso).toLocaleString('pt-BR'))}">${label}</span>`;
+    }
+
     function renderUsers(users) {
       const body = $('usersBody'); body.innerHTML = '';
       for (const u of users) {
-        const created = new Date(u.createdAtUtc).toLocaleString('pt-BR');
         const badge = u.isActive ? '<span class="badge on">ativo</span>' : '<span class="badge off">inativo</span>';
         const act = u.isActive
           ? `<button class="danger" data-act="disable" data-email="${esc(u.email)}">Desativar</button>`
           : `<button class="ok" data-act="enable" data-email="${esc(u.email)}">Reativar</button>`;
         const tr = document.createElement('tr');
-        tr.innerHTML = `<td>${esc(u.email)}</td><td>${esc(u.role)}</td><td>${badge}</td><td>${esc(created)}</td><td class="actions">${act}</td>`;
+        tr.innerHTML = `<td>${esc(u.email)}</td><td>${esc(u.role)}</td><td>${badge}</td>` +
+                       `<td>${relTime(u.lastSeenAtUtc)}</td><td>${u.loginCount ?? 0}</td>` +
+                       `<td class="actions">${act}</td>`;
         body.appendChild(tr);
       }
       $('usersMsg').textContent = users.length + ' conta(s).';

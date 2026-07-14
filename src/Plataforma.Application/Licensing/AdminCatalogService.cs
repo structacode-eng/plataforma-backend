@@ -51,7 +51,7 @@ public sealed class AdminCatalogService
         await _users.AddAsync(user, ct);
         await _uow.SaveChangesAsync(ct);
 
-        return Result<UserDto>.Ok(new UserDto(user.Email, userRole.ToString(), user.IsActive, user.CreatedAtUtc));
+        return Result<UserDto>.Ok(new UserDto(user.Email, userRole.ToString(), user.IsActive, user.CreatedAtUtc, user.LastSeenAtUtc, user.LoginCount));
     }
 
     /// <summary>Lista as contas (para o painel admin).</summary>
@@ -59,7 +59,7 @@ public sealed class AdminCatalogService
     {
         var users = await _users.ListAsync(limit, ct);
         var list = (IReadOnlyList<UserDto>)users
-            .Select(u => new UserDto(u.Email, u.Role.ToString(), u.IsActive, u.CreatedAtUtc)).ToList();
+            .Select(u => new UserDto(u.Email, u.Role.ToString(), u.IsActive, u.CreatedAtUtc, u.LastSeenAtUtc, u.LoginCount)).ToList();
         return Result<IReadOnlyList<UserDto>>.Ok(list);
     }
 

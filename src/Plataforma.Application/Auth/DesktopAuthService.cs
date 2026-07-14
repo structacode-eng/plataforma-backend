@@ -29,12 +29,14 @@ public sealed class DesktopAuthService
     private readonly IUserRepository _users;
     private readonly IPasswordHasher _hasher;
     private readonly IJwtTokenService _jwt;
+    private readonly IUnitOfWork _uow;
 
-    public DesktopAuthService(IUserRepository users, IPasswordHasher hasher, IJwtTokenService jwt)
+    public DesktopAuthService(IUserRepository users, IPasswordHasher hasher, IJwtTokenService jwt, IUnitOfWork uow)
     {
         _users = users;
         _hasher = hasher;
         _jwt = jwt;
+        _uow = uow;
     }
 
     public async Task<Result<DesktopSession>> LoginAsync(string? email, string? password, CancellationToken ct = default)
@@ -44,6 +46,9 @@ public sealed class DesktopAuthService
             return Result<DesktopSession>.Fail("E-mail ou senha inválidos.", "invalid_credentials");
         if (!user.IsActive)
             return Result<DesktopSession>.Fail("Acesso revogado.", "user_inactive");
+
+        user.RegisterLogin();
+        await _uow.SaveChangesAsync(ct);
 
         var (token, expires) = _jwt.CreateDesktopToken(user);
         return Result<DesktopSession>.Ok(new DesktopSession
@@ -59,6 +64,14 @@ public sealed class DesktopAuthService
     {
         var user = await _users.GetByIdAsync(userId, ct);
         if (user is null) return null;
+
+        // Heartbeat: marca atividade (throttle de 5 min para não escrever a cada chamada).
+        if (user.LastSeenAtUtc is null || (DateTime.UtcNow - user.LastSeenAtUtc.Value).TotalMinutes >= 5)
+        {
+            user.MarkSeen();
+            await _uow.SaveChangesAsync(ct);
+        }
+
         return new DesktopMe { Email = user.Email, Name = NameFromEmail(user.Email), Active = user.IsActive };
     }
 
