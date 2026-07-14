@@ -18,6 +18,9 @@ public sealed class UserRepository : IUserRepository
     public Task<bool> ExistsByEmailAsync(string email, CancellationToken ct = default)
         => _db.Users.AnyAsync(u => u.Email == email, ct);
 
+    public async Task<IReadOnlyList<User>> ListAsync(int limit = 500, CancellationToken ct = default)
+        => await _db.Users.OrderByDescending(u => u.CreatedAtUtc).Take(limit).ToListAsync(ct);
+
     public async Task AddAsync(User user, CancellationToken ct = default)
         => await _db.Users.AddAsync(user, ct);
 }

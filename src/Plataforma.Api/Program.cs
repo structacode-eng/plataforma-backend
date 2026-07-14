@@ -62,6 +62,10 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+// Painel administrativo estático (wwwroot/admin/index.html), servido pela própria API.
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
 // TLS é terminado na borda (proxy/host) em produção — Cap. 17. Local roda em HTTP.
 app.UseAuthentication();
 app.UseAuthorization();

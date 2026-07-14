@@ -51,7 +51,16 @@ public sealed class AdminCatalogService
         await _users.AddAsync(user, ct);
         await _uow.SaveChangesAsync(ct);
 
-        return Result<UserDto>.Ok(new UserDto(user.Email, userRole.ToString()));
+        return Result<UserDto>.Ok(new UserDto(user.Email, userRole.ToString(), user.IsActive, user.CreatedAtUtc));
+    }
+
+    /// <summary>Lista as contas (para o painel admin).</summary>
+    public async Task<Result<IReadOnlyList<UserDto>>> ListUsersAsync(int limit = 500, CancellationToken ct = default)
+    {
+        var users = await _users.ListAsync(limit, ct);
+        var list = (IReadOnlyList<UserDto>)users
+            .Select(u => new UserDto(u.Email, u.Role.ToString(), u.IsActive, u.CreatedAtUtc)).ToList();
+        return Result<IReadOnlyList<UserDto>>.Ok(list);
     }
 
     private static UserRole ParseRole(string? role)

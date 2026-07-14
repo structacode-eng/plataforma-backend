@@ -52,6 +52,12 @@ public sealed class AdminController : ControllerBase
     public async Task<IActionResult> ResetDevice(Guid id, CancellationToken ct)
         => Respond(await _svc.ResetDeviceAsync(id, ct));
 
+    // Lista todas as contas (para o painel admin).
+    [HttpGet("users")]
+    [Authorize(Roles = "Owner")]
+    public async Task<IActionResult> ListUsers([FromQuery] int limit, CancellationToken ct)
+        => Respond(await _svc.ListUsersAsync(limit <= 0 ? 500 : limit, ct));
+
     // Cria uma conta (cadastro público está fechado; só o Owner cria contas).
     [HttpPost("users")]
     [Authorize(Roles = "Owner")]

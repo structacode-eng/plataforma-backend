@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Filippon — Painel Admin</title>
+  <style>
+    :root { --bg:#0f172a; --card:#ffffff; --ink:#0f172a; --muted:#64748b;
+            --line:#e2e8f0; --brand:#4f46e5; --brand2:#4338ca; --ok:#16a34a; --danger:#dc2626; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+           background:#f1f5f9; color:var(--ink); }
+    .wrap { max-width: 920px; margin: 0 auto; padding: 24px 16px 48px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:14px;
+            padding:20px; margin:16px 0; box-shadow:0 1px 2px rgba(15,23,42,.04); }
+    h1 { margin:0 0 4px; font-size:22px; } h2 { margin:0 0 12px; font-size:17px; }
+    .muted { color:var(--muted); font-size:14px; }
+    input { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:9px;
+            font-size:14px; margin:6px 0; background:#fff; color:var(--ink); }
+    button { border:0; border-radius:9px; padding:10px 16px; font-size:14px; font-weight:600;
+             cursor:pointer; background:var(--brand); color:#fff; }
+    button:hover { background:var(--brand2); }
+    button.ghost { background:transparent; color:var(--muted); border:1px solid var(--line); }
+    button.ghost:hover { background:#f8fafc; color:var(--ink); }
+    button.danger { background:var(--danger); } button.ok { background:var(--ok); }
+    .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+    .row input { flex:1; min-width:180px; margin:0; }
+    .between { justify-content:space-between; }
+    .topbar { display:flex; justify-content:space-between; align-items:center;
+              padding:14px 4px; }
+    .msg { font-size:13px; color:var(--muted); margin-top:10px; min-height:18px; }
+    table { width:100%; border-collapse:collapse; margin-top:8px; font-size:14px; }
+    th, td { text-align:left; padding:10px 8px; border-bottom:1px solid var(--line); }
+    th { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+    td.actions { text-align:right; } td.actions button { padding:6px 12px; font-size:13px; }
+    .badge { font-size:12px; font-weight:600; padding:3px 9px; border-radius:999px; }
+    .badge.on { background:#dcfce7; color:#166534; } .badge.off { background:#fee2e2; color:#991b1b; }
+    .login { max-width:380px; margin:60px auto; }
+    .center { text-align:center; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <!-- ===== Login ===== -->
+    <section id="loginView" class="card login">
+      <h1 class="center">Filippon · Painel</h1>
+      <p class="muted center">Acesso restrito ao administrador.</p>
+      <input id="loginEmail" type="email" placeholder="E-mail do Owner" autocomplete="username" />
+      <input id="loginPass" type="password" placeholder="Senha" autocomplete="current-password" />
+      <button id="loginBtn" style="width:100%; margin-top:8px;">Entrar</button>
+      <div id="loginMsg" class="msg center"></div>
+    </section>
+
+    <!-- ===== Admin ===== -->
+    <section id="adminView" style="display:none">
+      <div class="topbar">
+        <div><strong>Filippon</strong> <span class="muted">· Painel Admin</span></div>
+        <div class="row"><span id="whoami" class="muted"></span>
+          <button id="logoutBtn" class="ghost">Sair</button></div>
+      </div>
+
+      <div class="card">
+        <h2>Criar conta de acesso</h2>
+        <div class="row">
+          <input id="newEmail" type="email" placeholder="e-mail@escritorio.com" />
+          <input id="newPass" type="text" placeholder="senha (mín. 8)" />
+          <button id="createBtn">Criar conta</button>
+        </div>
+        <div id="createMsg" class="msg"></div>
+      </div>
+
+      <div class="card">
+        <div class="row between">
+          <h2 style="margin:0">Usuários</h2>
+          <button id="refreshBtn" class="ghost">Atualizar</button>
+        </div>
+        <table>
+          <thead><tr><th>E-mail</th><th>Papel</th><th>Status</th><th>Criado</th><th style="text-align:right">Ações</th></tr></thead>
+          <tbody id="usersBody"></tbody>
+        </table>
+        <div id="usersMsg" class="msg"></div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let access = sessionStorage.getItem('fp_access');
+    let refresh = sessionStorage.getItem('fp_refresh');
+    let email = sessionStorage.getItem('fp_email');
+
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c =>
+      ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+
+    function show(view) {
+      $('loginView').style.display = view === 'login' ? '' : 'none';
+      $('adminView').style.display = view === 'admin' ? '' : 'none';
+    }
+    function setTokens(d, em) {
+      access = d.accessToken; refresh = d.refreshToken; if (em) email = em;
+      sessionStorage.setItem('fp_access', access);
+      sessionStorage.setItem('fp_refresh', refresh);
+      sessionStorage.setItem('fp_email', email);
+    }
+    function clearTokens() { access = refresh = email = null; sessionStorage.clear(); }
+
+    async function apiFetch(path, opts = {}, retry = true) {
+      opts.headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
+      if (access) opts.headers['Authorization'] = 'Bearer ' + access;
+      const res = await fetch(path, opts);
+      if (res.status === 401 && retry && refresh) {
+        const r = await fetch('/v1/auth/refresh', { method:'POST',
+          headers:{'Content-Type':'application/json'}, body: JSON.stringify({ refreshToken: refresh }) });
+        if (r.ok) { setTokens(await r.json()); return apiFetch(path, opts, false); }
+        clearTokens(); show('login'); throw new Error('expired');
+      }
+      return res;
+    }
+
+    async function login() {
+      $('loginMsg').textContent = 'Entrando...';
+      const em = $('loginEmail').value.trim(), pw = $('loginPass').value;
+      try {
+        const res = await fetch('/v1/auth/login', { method:'POST',
+          headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email: em, password: pw }) });
+        if (!res.ok) { $('loginMsg').textContent = 'E-mail ou senha inválidos.'; return; }
+        setTokens(await res.json(), em);
+        const test = await apiFetch('/v1/admin/users');
+        if (test.status === 403) { clearTokens(); $('loginMsg').textContent = 'Esta conta não é administrador (Owner).'; return; }
+        $('whoami').textContent = em; show('admin'); renderUsers(await test.json());
+      } catch (e) { $('loginMsg').textContent = 'Erro ao conectar ao servidor.'; }
+    }
+
+    async function loadUsers() {
+      $('usersMsg').textContent = 'Carregando...';
+      try {
+        const res = await apiFetch('/v1/admin/users');
+        if (!res.ok) { $('usersMsg').textContent = 'Falha ao carregar.'; return; }
+        renderUsers(await res.json());
+      } catch (e) { $('usersMsg').textContent = 'Sessão expirada — entre de novo.'; }
+    }
+
+    function renderUsers(users) {
+      const body = $('usersBody'); body.innerHTML = '';
+      for (const u of users) {
+        const created = new Date(u.createdAtUtc).toLocaleString('pt-BR');
+        const badge = u.isActive ? '<span class="badge on">ativo</span>' : '<span class="badge off">inativo</span>';
+        const act = u.isActive
+          ? `<button class="danger" data-act="disable" data-email="${esc(u.email)}">Desativar</button>`
+          : `<button class="ok" data-act="enable" data-email="${esc(u.email)}">Reativar</button>`;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${esc(u.email)}</td><td>${esc(u.role)}</td><td>${badge}</td><td>${esc(created)}</td><td class="actions">${act}</td>`;
+        body.appendChild(tr);
+      }
+      $('usersMsg').textContent = users.length + ' conta(s).';
+    }
+
+    async function createUser() {
+      const em = $('newEmail').value.trim(), pw = $('newPass').value;
+      $('createMsg').textContent = 'Criando...';
+      const res = await apiFetch('/v1/admin/users', { method:'POST', body: JSON.stringify({ email: em, password: pw }) });
+      if (res.status === 201) {
+        $('createMsg').textContent = '✓ Conta criada: ' + em + ' — passe e-mail e senha para a pessoa.';
+        $('newEmail').value = ''; $('newPass').value = ''; loadUsers();
+      } else {
+        let m = 'Erro ao criar.'; try { m = (await res.json()).error || m; } catch {}
+        $('createMsg').textContent = m;
+      }
+    }
+
+    async function toggle(em, act) {
+      const res = await apiFetch('/v1/admin/users/' + encodeURIComponent(em) + '/' + act, { method:'POST' });
+      if (res.ok) loadUsers(); else $('usersMsg').textContent = 'Falha na ação.';
+    }
+
+    $('loginBtn').onclick = login;
+    $('loginPass').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+    $('logoutBtn').onclick = () => { clearTokens(); show('login'); };
+    $('createBtn').onclick = createUser;
+    $('refreshBtn').onclick = loadUsers;
+    $('usersBody').addEventListener('click', e => {
+      const b = e.target.closest('button[data-act]');
+      if (b) toggle(b.dataset.email, b.dataset.act);
+    });
+
+    // Retoma sessão se houver token salvo.
+    if (access) {
+      apiFetch('/v1/admin/users').then(async r => {
+        if (r.ok) { $('whoami').textContent = email || ''; show('admin'); renderUsers(await r.json()); }
+        else { clearTokens(); show('login'); }
+      }).catch(() => show('login'));
+    } else { show('login'); }
+  </script>
+</body>
+</html>
