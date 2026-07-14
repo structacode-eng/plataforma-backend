@@ -7,6 +7,7 @@ using Microsoft.IdentityModel.Tokens;
 using Plataforma.Api.Seed;
 using Plataforma.Application.Auth;
 using Plataforma.Application.Licensing;
+using Plataforma.Application.Releases;
 using Plataforma.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -28,6 +29,7 @@ builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<DesktopAuthService>();
 builder.Services.AddScoped<LicenseService>();
 builder.Services.AddScoped<AdminCatalogService>();
+builder.Services.AddScoped<ReleaseService>();
 
 // Validação de JWT nas requisições autenticadas (a chave vem de segredo).
 var jwtKey = builder.Configuration["Jwt:Key"]

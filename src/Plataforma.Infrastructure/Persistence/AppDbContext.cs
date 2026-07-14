@@ -24,6 +24,9 @@ public sealed class AppDbContext : DbContext, IUnitOfWork
     public DbSet<LicensePlugin> LicensePlugins => Set<LicensePlugin>();
     public DbSet<Device> Devices => Set<Device>();
 
+    // Release/updater (Marco 5)
+    public DbSet<ReleaseManifest> ReleaseManifests => Set<ReleaseManifest>();
+
     protected override void OnModelCreating(ModelBuilder b)
     {
         b.Entity<User>(e =>
@@ -109,6 +112,16 @@ public sealed class AppDbContext : DbContext, IUnitOfWork
              .IsUnique()
              .HasFilter("\"IsActive\" = true");
             e.HasOne<License>().WithMany().HasForeignKey(x => x.LicenseId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<ReleaseManifest>(e =>
+        {
+            e.ToTable("release_manifests");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Version).HasMaxLength(40).IsRequired();
+            e.Property(x => x.Url).HasMaxLength(1000);
+            e.Property(x => x.Notes).HasMaxLength(4000);
+            e.Property(x => x.Sha256).HasMaxLength(64);
         });
 
         base.OnModelCreating(b);

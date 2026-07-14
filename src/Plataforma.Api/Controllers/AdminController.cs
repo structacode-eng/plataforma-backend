@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Plataforma.Application.Common;
 using Plataforma.Application.Licensing;
+using Plataforma.Application.Releases;
 
 namespace Plataforma.Api.Controllers;
 
@@ -16,7 +17,12 @@ namespace Plataforma.Api.Controllers;
 public sealed class AdminController : ControllerBase
 {
     private readonly AdminCatalogService _svc;
-    public AdminController(AdminCatalogService svc) => _svc = svc;
+    private readonly ReleaseService _releases;
+    public AdminController(AdminCatalogService svc, ReleaseService releases)
+    {
+        _svc = svc;
+        _releases = releases;
+    }
 
     [HttpPost("plugins")]
     [Authorize(Roles = "Owner")]
@@ -81,6 +87,29 @@ public sealed class AdminController : ControllerBase
     public async Task<IActionResult> ResetPassword(string email, [FromBody] ResetPasswordRequest req, CancellationToken ct)
         => Respond(await _svc.ResetPasswordAsync(email, req?.Password, ct));
 
+    // Altera o papel de um usuário (Customer/Support/Owner). Owner apenas.
+    [HttpPut("users/{email}/role")]
+    [Authorize(Roles = "Owner")]
+    public async Task<IActionResult> SetRole(string email, [FromBody] SetRoleRequest req, CancellationToken ct)
+        => Respond(await _svc.SetRoleAsync(email, req?.Role, ct));
+
+    // Exclui uma conta (cascata: tokens/licenças/dispositivos). Owner apenas.
+    [HttpDelete("users/{email}")]
+    [Authorize(Roles = "Owner")]
+    public async Task<IActionResult> DeleteUser(string email, CancellationToken ct)
+        => Respond(await _svc.DeleteUserAsync(email, ct));
+
+    // ----- Updater (Marco 5): manifesto de versão publicada -----
+    [HttpGet("release")]
+    [Authorize(Roles = "Owner")]
+    public async Task<IActionResult> GetRelease(CancellationToken ct)
+        => Ok(await _releases.GetManifestAsync(ct));
+
+    [HttpPut("release")]
+    [Authorize(Roles = "Owner")]
+    public async Task<IActionResult> SetRelease([FromBody] SetReleaseRequest req, CancellationToken ct)
+        => Respond(await _releases.SetManifestAsync(req, ct));
+
     private IActionResult Respond<T>(Result<T> r, int successCode = StatusCodes.Status200OK)
     {
         if (r.Success) return StatusCode(successCode, r.Value);
@@ -88,7 +117,7 @@ public sealed class AdminController : ControllerBase
         {
             "user_not_found" or "plan_not_found" or "plugin_not_found"
                 or "license_not_found" or "device_not_found" => StatusCodes.Status404NotFound,
-            "slug_taken" or "email_taken" => StatusCodes.Status409Conflict,
+            "slug_taken" or "email_taken" or "owner_protected" or "last_owner" => StatusCodes.Status409Conflict,
             _ => StatusCodes.Status400BadRequest
         };
         return StatusCode(status, new { error = r.Error, code = r.Code });

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Plataforma.Application.Abstractions;
 using Plataforma.Domain.Entities;
+using Plataforma.Domain.Enums;
 
 namespace Plataforma.Infrastructure.Persistence.Repositories;
 
@@ -23,4 +24,9 @@ public sealed class UserRepository : IUserRepository
 
     public async Task AddAsync(User user, CancellationToken ct = default)
         => await _db.Users.AddAsync(user, ct);
+
+    public Task<int> CountByRoleAsync(UserRole role, CancellationToken ct = default)
+        => _db.Users.CountAsync(u => u.Role == role, ct);
+
+    public void Remove(User user) => _db.Users.Remove(user);
 }

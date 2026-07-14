@@ -33,6 +33,8 @@ public static class DependencyInjection
         services.AddScoped<IPlanRepository, PlanRepository>();
         services.AddScoped<ILicenseRepository, LicenseRepository>();
         services.AddScoped<IDeviceRepository, DeviceRepository>();
+        // Release/updater (Marco 5)
+        services.AddScoped<IReleaseRepository, ReleaseRepository>();
         // Singleton: a chave de assinatura do lease é carregada uma vez e reutilizada (ver EcdsaLeaseService).
         services.AddSingleton<ILeaseService, EcdsaLeaseService>();
         services.Configure<LeaseOptions>(config.GetSection("Lease"));

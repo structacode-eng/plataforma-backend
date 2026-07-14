@@ -226,6 +226,45 @@ public sealed class AdminCatalogService
         return Result<bool>.Ok(true);
     }
 
+    /// <summary>Altera o papel de um usuário. Trava anti-lockout: não rebaixa o único Owner.</summary>
+    public async Task<Result<bool>> SetRoleAsync(string? email, string? role, CancellationToken ct = default)
+    {
+        if (!TryParseRoleStrict(role, out var newRole))
+            return Result<bool>.Fail("Papel inválido (Customer, Support ou Owner).", "invalid_role");
+        var user = await _users.GetByEmailAsync(User.Normalize(email ?? ""), ct);
+        if (user is null) return Result<bool>.Fail("Usuário não encontrado.", "user_not_found");
+        if (user.Role == newRole) return Result<bool>.Ok(true); // nada a mudar
+        if (user.Role == UserRole.Owner && newRole != UserRole.Owner)
+        {
+            var owners = await _users.CountByRoleAsync(UserRole.Owner, ct);
+            if (owners <= 1) return Result<bool>.Fail("Não é possível rebaixar o único Owner.", "last_owner");
+        }
+        user.SetRole(newRole);
+        await _uow.SaveChangesAsync(ct);
+        return Result<bool>.Ok(true);
+    }
+
+    /// <summary>Exclui uma conta (cascata no banco: tokens/licenças/dispositivos). Um Owner não é
+    /// excluído direto — rebaixe para Customer antes (evita lockout e exclusão do último Owner).</summary>
+    public async Task<Result<bool>> DeleteUserAsync(string? email, CancellationToken ct = default)
+    {
+        var user = await _users.GetByEmailAsync(User.Normalize(email ?? ""), ct);
+        if (user is null) return Result<bool>.Fail("Usuário não encontrado.", "user_not_found");
+        if (user.Role == UserRole.Owner)
+            return Result<bool>.Fail("Não é possível excluir um Owner. Rebaixe para Customer antes.", "owner_protected");
+        _users.Remove(user);
+        await _uow.SaveChangesAsync(ct);
+        return Result<bool>.Ok(true);
+    }
+
+    private static bool TryParseRoleStrict(string? role, out UserRole parsed)
+    {
+        parsed = UserRole.Customer;
+        return !string.IsNullOrWhiteSpace(role)
+            && Enum.TryParse(role, ignoreCase: true, out parsed)
+            && Enum.IsDefined(parsed);
+    }
+
     private async Task<Result<bool>> ChangeStatusAsync(Guid licenseId, Action<License> action, CancellationToken ct)
     {
         var license = await _licenses.GetByIdAsync(licenseId, ct);

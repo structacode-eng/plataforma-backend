@@ -23,6 +23,12 @@
     button.ghost { background:transparent; color:var(--muted); border:1px solid var(--line); }
     button.ghost:hover { background:#f8fafc; color:var(--ink); }
     button.danger { background:var(--danger); } button.ok { background:var(--ok); }
+    button.danger-ghost { background:transparent; color:var(--danger); border:1px solid var(--line); }
+    button.danger-ghost:hover { background:#fef2f2; color:var(--danger); }
+    select.role { padding:5px 8px; border:1px solid var(--line); border-radius:8px; font-size:13px; background:#fff; color:var(--ink); cursor:pointer; }
+    textarea { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:9px; font-size:14px; margin:6px 0; font-family:inherit; resize:vertical; min-height:60px; background:#fff; color:var(--ink); }
+    label.chk { display:flex; align-items:center; gap:8px; font-size:14px; color:var(--ink); cursor:pointer; }
+    label.chk input { width:auto; margin:0; }
     .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
     .row input { flex:1; min-width:180px; margin:0; }
     .between { justify-content:space-between; }
@@ -80,6 +86,25 @@
         </table>
         <div id="usersMsg" class="msg"></div>
       </div>
+
+      <div class="card">
+        <div class="row between">
+          <h2 style="margin:0">Versão publicada <span class="muted" style="font-weight:400">· auto-update</span></h2>
+          <span id="relCurrent" class="muted"></span>
+        </div>
+        <p class="muted" style="margin:6px 0 12px">O plugin consulta isto no boot. Publique uma versão <b>maior</b> que a instalada e todos os clientes são avisados — sem reinstalar. (Auto-instalação exige URL <b>https</b> + <b>SHA-256</b>; sem eles, o plugin só avisa e abre o link.)</p>
+        <div class="row">
+          <input id="relVersion" placeholder="versão (ex.: 1.8.0)" style="max-width:170px" />
+          <input id="relUrl" placeholder="URL do instalador .exe (https p/ auto-update)" />
+        </div>
+        <input id="relSha" placeholder="SHA-256 do instalador (64 hex) — só p/ auto-update" />
+        <textarea id="relNotes" placeholder="Notas da versão (o que mudou)"></textarea>
+        <div class="row between" style="margin-top:6px">
+          <label class="chk"><input type="checkbox" id="relMandatory" /> Marcar como obrigatória</label>
+          <button id="relSaveBtn">Publicar versão</button>
+        </div>
+        <div id="relMsg" class="msg"></div>
+      </div>
     </section>
   </div>
 
@@ -127,7 +152,7 @@
         setTokens(await res.json(), em);
         const test = await apiFetch('/v1/admin/users');
         if (test.status === 403) { clearTokens(); $('loginMsg').textContent = 'Esta conta não é administrador (Owner).'; return; }
-        $('whoami').textContent = em; show('admin'); renderUsers(await test.json());
+        $('whoami').textContent = em; show('admin'); renderUsers(await test.json()); loadRelease();
       } catch (e) { $('loginMsg').textContent = 'Erro ao conectar ao servidor.'; }
     }
 
@@ -153,16 +178,24 @@
       return `<span title="${esc(new Date(iso).toLocaleString('pt-BR'))}">${label}</span>`;
     }
 
+    function roleSelect(u) {
+      const roles = ['Customer','Support','Owner'];
+      const opts = roles.map(r => `<option value="${r}"${u.role===r?' selected':''}>${r}</option>`).join('');
+      return `<select class="role" data-email="${esc(u.email)}" data-current="${esc(u.role)}">${opts}</select>`;
+    }
+
     function renderUsers(users) {
       const body = $('usersBody'); body.innerHTML = '';
       for (const u of users) {
         const badge = u.isActive ? '<span class="badge on">ativo</span>' : '<span class="badge off">inativo</span>';
         const resetBtn = `<button class="ghost" data-act="reset" data-email="${esc(u.email)}">Senha</button>`;
-        const act = resetBtn + ' ' + (u.isActive
+        const toggleBtn = u.isActive
           ? `<button class="danger" data-act="disable" data-email="${esc(u.email)}">Desativar</button>`
-          : `<button class="ok" data-act="enable" data-email="${esc(u.email)}">Reativar</button>`);
+          : `<button class="ok" data-act="enable" data-email="${esc(u.email)}">Reativar</button>`;
+        const delBtn = `<button class="danger-ghost" data-act="delete" data-email="${esc(u.email)}">Excluir</button>`;
+        const act = resetBtn + ' ' + toggleBtn + ' ' + delBtn;
         const tr = document.createElement('tr');
-        tr.innerHTML = `<td>${esc(u.email)}</td><td>${esc(u.role)}</td><td>${badge}</td>` +
+        tr.innerHTML = `<td>${esc(u.email)}</td><td>${roleSelect(u)}</td><td>${badge}</td>` +
                        `<td>${relTime(u.lastSeenAtUtc)}</td><td>${u.loginCount ?? 0}</td>` +
                        `<td class="actions">${act}</td>`;
         body.appendChild(tr);
@@ -203,22 +236,76 @@
       }
     }
 
+    async function deleteUser(em) {
+      if (!confirm('Excluir a conta ' + em + '?\n\nRemove a conta e todo o histórico dela. Ação irreversível.')) return;
+      const res = await apiFetch('/v1/admin/users/' + encodeURIComponent(em), { method:'DELETE' });
+      if (res.ok) { $('usersMsg').textContent = '✓ Conta excluída: ' + em; loadUsers(); }
+      else { let m = 'Falha ao excluir.'; try { m = (await res.json()).error || m; } catch {} $('usersMsg').textContent = m; }
+    }
+
+    async function setRole(em, role, current) {
+      if (role === current) return;
+      if (!confirm('Alterar o papel de ' + em + ' para ' + role + '?')) { loadUsers(); return; }
+      const res = await apiFetch('/v1/admin/users/' + encodeURIComponent(em) + '/role',
+        { method:'PUT', body: JSON.stringify({ role }) });
+      if (res.ok) { $('usersMsg').textContent = '✓ ' + em + ' agora é ' + role + '.'; loadUsers(); }
+      else { let m = 'Falha ao alterar papel.'; try { m = (await res.json()).error || m; } catch {} $('usersMsg').textContent = m; loadUsers(); }
+    }
+
+    async function loadRelease() {
+      try {
+        const res = await apiFetch('/v1/admin/release');
+        if (!res.ok) return;
+        const r = await res.json();
+        const published = r.latest && r.latest !== '0.0.0';
+        $('relVersion').value = published ? r.latest : '';
+        $('relUrl').value = r.url || '';
+        $('relSha').value = r.sha256 || '';
+        $('relNotes').value = r.notes || '';
+        $('relMandatory').checked = !!r.mandatory;
+        $('relCurrent').textContent = published
+          ? ('publicada: v' + r.latest + (r.url ? '' : ' — sem link de download'))
+          : 'nenhuma versão publicada';
+      } catch {}
+    }
+
+    async function saveRelease() {
+      const body = {
+        version: $('relVersion').value.trim(),
+        url: $('relUrl').value.trim(),
+        sha256: $('relSha').value.trim(),
+        notes: $('relNotes').value.trim(),
+        mandatory: $('relMandatory').checked
+      };
+      if (!body.version) { $('relMsg').textContent = 'Informe a versão (ex.: 1.8.0).'; return; }
+      $('relMsg').textContent = 'Publicando...';
+      const res = await apiFetch('/v1/admin/release', { method:'PUT', body: JSON.stringify(body) });
+      if (res.ok) { $('relMsg').textContent = '✓ Versão ' + body.version + ' publicada — os clientes veem no próximo boot do Revit.'; loadRelease(); }
+      else { let m = 'Falha ao publicar.'; try { m = (await res.json()).error || m; } catch {} $('relMsg').textContent = m; }
+    }
+
     $('loginBtn').onclick = login;
     $('loginPass').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
     $('logoutBtn').onclick = () => { clearTokens(); show('login'); };
     $('createBtn').onclick = createUser;
     $('refreshBtn').onclick = loadUsers;
+    $('relSaveBtn').onclick = saveRelease;
     $('usersBody').addEventListener('click', e => {
       const b = e.target.closest('button[data-act]');
       if (!b) return;
       if (b.dataset.act === 'reset') resetPassword(b.dataset.email);
+      else if (b.dataset.act === 'delete') deleteUser(b.dataset.email);
       else toggle(b.dataset.email, b.dataset.act);
+    });
+    $('usersBody').addEventListener('change', e => {
+      const sel = e.target.closest('select.role');
+      if (sel) setRole(sel.dataset.email, sel.value, sel.dataset.current);
     });
 
     // Retoma sessão se houver token salvo.
     if (access) {
       apiFetch('/v1/admin/users').then(async r => {
-        if (r.ok) { $('whoami').textContent = email || ''; show('admin'); renderUsers(await r.json()); }
+        if (r.ok) { $('whoami').textContent = email || ''; show('admin'); renderUsers(await r.json()); loadRelease(); }
         else { clearTokens(); show('login'); }
       }).catch(() => show('login'));
     } else { show('login'); }
