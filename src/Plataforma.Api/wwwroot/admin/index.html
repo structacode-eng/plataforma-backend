@@ -88,21 +88,41 @@
       </div>
 
       <div class="card">
-        <div class="row between">
-          <h2 style="margin:0">Versão publicada <span class="muted" style="font-weight:400">· auto-update</span></h2>
-          <span id="relCurrent" class="muted"></span>
+        <h2 style="margin:0 0 4px">Versão publicada <span class="muted" style="font-weight:400">· auto-update</span></h2>
+        <p class="muted" style="margin:6px 0 12px">Fluxo seguro: o pipeline publica no <b>canário</b> → você testa na máquina canário → <b>promove</b> para todas.</p>
+
+        <div class="row" style="align-items:stretch; gap:12px; margin-bottom:8px">
+          <div style="flex:1; border:1px solid var(--line); border-radius:10px; padding:12px">
+            <div class="muted" style="font-size:11px; text-transform:uppercase; letter-spacing:.04em">Estável · todas as máquinas</div>
+            <div id="relStable" style="font-size:18px; font-weight:700; margin-top:4px">—</div>
+          </div>
+          <div style="flex:1; border:1px solid var(--line); border-radius:10px; padding:12px">
+            <div class="row between">
+              <span class="muted" style="font-size:11px; text-transform:uppercase; letter-spacing:.04em">Canário · teste</span>
+              <button id="promoteBtn" class="ok" style="padding:4px 10px; font-size:12px">Promover →</button>
+            </div>
+            <div id="relCanary" style="font-size:18px; font-weight:700; margin-top:4px">—</div>
+          </div>
         </div>
-        <p class="muted" style="margin:6px 0 12px">O plugin consulta isto no boot. Publique uma versão <b>maior</b> que a instalada e todos os clientes são avisados — sem reinstalar. (Auto-instalação exige URL <b>https</b> + <b>SHA-256</b>; sem eles, o plugin só avisa e abre o link.)</p>
-        <div class="row">
-          <input id="relVersion" placeholder="versão (ex.: 1.8.0)" style="max-width:170px" />
-          <input id="relUrl" placeholder="URL do instalador .exe (https p/ auto-update)" />
-        </div>
-        <input id="relSha" placeholder="SHA-256 do instalador (64 hex) — só p/ auto-update" />
-        <textarea id="relNotes" placeholder="Notas da versão (o que mudou)"></textarea>
-        <div class="row between" style="margin-top:6px">
-          <label class="chk"><input type="checkbox" id="relMandatory" /> Marcar como obrigatória</label>
-          <button id="relSaveBtn">Publicar versão</button>
-        </div>
+
+        <details>
+          <summary class="muted" style="cursor:pointer; font-size:13px">Publicar manualmente (avançado)</summary>
+          <div style="margin-top:10px">
+            <div class="row">
+              <input id="relVersion" placeholder="versão (ex.: 1.8.0)" style="max-width:170px" />
+              <input id="relUrl" placeholder="URL do instalador .exe (https)" />
+            </div>
+            <input id="relSha" placeholder="SHA-256 (64 hex)" />
+            <textarea id="relNotes" placeholder="Notas da versão"></textarea>
+            <div class="row between" style="margin-top:6px">
+              <label class="chk"><input type="checkbox" id="relMandatory" /> Obrigatória</label>
+              <div class="row">
+                <select id="relChannel" class="role"><option value="canary">canário</option><option value="stable">estável</option></select>
+                <button id="relSaveBtn">Publicar</button>
+              </div>
+            </div>
+          </div>
+        </details>
         <div id="relMsg" class="msg"></div>
       </div>
     </section>
@@ -252,24 +272,31 @@
       else { let m = 'Falha ao alterar papel.'; try { m = (await res.json()).error || m; } catch {} $('usersMsg').textContent = m; loadUsers(); }
     }
 
+    function fmtChannel(c) {
+      return (c && c.latest && c.latest !== '0.0.0')
+        ? ('v' + c.latest + (c.url ? '' : ' (sem link)'))
+        : '— nenhuma —';
+    }
+
     async function loadRelease() {
       try {
         const res = await apiFetch('/v1/admin/release');
         if (!res.ok) return;
-        const r = await res.json();
-        const published = r.latest && r.latest !== '0.0.0';
-        $('relVersion').value = published ? r.latest : '';
-        $('relUrl').value = r.url || '';
-        $('relSha').value = r.sha256 || '';
-        $('relNotes').value = r.notes || '';
-        $('relMandatory').checked = !!r.mandatory;
-        $('relCurrent').textContent = published
-          ? ('publicada: v' + r.latest + (r.url ? '' : ' — sem link de download'))
-          : 'nenhuma versão publicada';
+        const r = await res.json();   // { stable, canary }
+        $('relStable').textContent = fmtChannel(r.stable);
+        $('relCanary').textContent = fmtChannel(r.canary);
       } catch {}
     }
 
+    async function promoteRelease() {
+      if (!confirm('Promover a versão do CANÁRIO para ESTÁVEL?\n\nIsso libera a atualização para TODAS as máquinas. Confirme só depois de testar no canário.')) return;
+      const res = await apiFetch('/v1/admin/release/promote', { method:'POST' });
+      if (res.ok) { $('relMsg').textContent = '✓ Promovido para estável — todas as máquinas serão atualizadas no próximo boot.'; loadRelease(); }
+      else { let m = 'Falha ao promover.'; try { m = (await res.json()).error || m; } catch {} $('relMsg').textContent = m; }
+    }
+
     async function saveRelease() {
+      const ch = $('relChannel').value;
       const body = {
         version: $('relVersion').value.trim(),
         url: $('relUrl').value.trim(),
@@ -279,8 +306,8 @@
       };
       if (!body.version) { $('relMsg').textContent = 'Informe a versão (ex.: 1.8.0).'; return; }
       $('relMsg').textContent = 'Publicando...';
-      const res = await apiFetch('/v1/admin/release', { method:'PUT', body: JSON.stringify(body) });
-      if (res.ok) { $('relMsg').textContent = '✓ Versão ' + body.version + ' publicada — os clientes veem no próximo boot do Revit.'; loadRelease(); }
+      const res = await apiFetch('/v1/admin/release?channel=' + encodeURIComponent(ch), { method:'PUT', body: JSON.stringify(body) });
+      if (res.ok) { $('relMsg').textContent = '✓ Publicado no canal ' + ch + '.'; loadRelease(); }
       else { let m = 'Falha ao publicar.'; try { m = (await res.json()).error || m; } catch {} $('relMsg').textContent = m; }
     }
 
@@ -290,6 +317,7 @@
     $('createBtn').onclick = createUser;
     $('refreshBtn').onclick = loadUsers;
     $('relSaveBtn').onclick = saveRelease;
+    $('promoteBtn').onclick = promoteRelease;
     $('usersBody').addEventListener('click', e => {
       const b = e.target.closest('button[data-act]');
       if (!b) return;

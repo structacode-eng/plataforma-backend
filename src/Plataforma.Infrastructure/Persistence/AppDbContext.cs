@@ -118,6 +118,8 @@ public sealed class AppDbContext : DbContext, IUnitOfWork
         {
             e.ToTable("release_manifests");
             e.HasKey(x => x.Id);
+            e.Property(x => x.Channel).HasMaxLength(20).IsRequired().HasDefaultValue("stable");
+            e.HasIndex(x => x.Channel);
             e.Property(x => x.Version).HasMaxLength(40).IsRequired();
             e.Property(x => x.Url).HasMaxLength(1000);
             e.Property(x => x.Notes).HasMaxLength(4000);

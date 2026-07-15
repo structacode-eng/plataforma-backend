@@ -103,12 +103,18 @@ public sealed class AdminController : ControllerBase
     [HttpGet("release")]
     [Authorize(Roles = "Owner")]
     public async Task<IActionResult> GetRelease(CancellationToken ct)
-        => Ok(await _releases.GetManifestAsync(ct));
+        => Ok(await _releases.GetBothAsync(ct));
 
     [HttpPut("release")]
     [Authorize(Roles = "Owner")]
-    public async Task<IActionResult> SetRelease([FromBody] SetReleaseRequest req, CancellationToken ct)
-        => Respond(await _releases.SetManifestAsync(req, ct));
+    public async Task<IActionResult> SetRelease([FromBody] SetReleaseRequest req, [FromQuery] string? channel, CancellationToken ct)
+        => Respond(await _releases.SetManifestAsync(req, channel, ct));
+
+    // Promove a versão do canário para o estável (libera para TODAS as máquinas). Owner apenas.
+    [HttpPost("release/promote")]
+    [Authorize(Roles = "Owner")]
+    public async Task<IActionResult> PromoteRelease(CancellationToken ct)
+        => Respond(await _releases.PromoteAsync(ct));
 
     private IActionResult Respond<T>(Result<T> r, int successCode = StatusCodes.Status200OK)
     {

@@ -16,9 +16,9 @@ public sealed class VersionController : ControllerBase
     public VersionController(ReleaseService svc) => _svc = svc;
 
     [HttpGet("/version")]
-    public async Task<IActionResult> Version(CancellationToken ct)
+    public async Task<IActionResult> Version([FromQuery] string? channel, CancellationToken ct)
     {
-        var m = await _svc.GetManifestAsync(ct);
+        var m = await _svc.GetManifestAsync(channel, ct);
         return Ok(new VersionResponse
         {
             Latest = m.Latest,

@@ -1,14 +1,18 @@
 namespace Plataforma.Domain.Entities;
 
 /// <summary>
-/// Manifesto da versão publicada do plugin (Marco 5 — updater). O endpoint público
-/// <c>GET /version</c> devolve estes campos; o cliente compara com a versão instalada
-/// e, se for mais nova, avisa (ou auto-instala). Guardamos uma linha por publicação
-/// (histórico); a mais recente (por <see cref="UpdatedAtUtc"/>) é a corrente.
+/// Manifesto de versão publicada do plugin (Marco 5 — updater). Cada linha pertence a
+/// um <see cref="Channel"/>: <c>"stable"</c> (todas as máquinas) ou <c>"canary"</c>
+/// (máquinas de teste). O pipeline publica no canário; o Owner promove canário→estável.
+/// A linha mais recente (por <see cref="UpdatedAtUtc"/>) de cada canal é a corrente.
 /// </summary>
 public sealed class ReleaseManifest
 {
+    public const string Stable = "stable";
+    public const string Canary = "canary";
+
     public Guid Id { get; private set; } = Guid.NewGuid();
+    public string Channel { get; private set; } = Stable;
     public string Version { get; private set; } = "0.0.0";
     public string? Url { get; private set; }
     public string? Notes { get; private set; }
@@ -18,8 +22,9 @@ public sealed class ReleaseManifest
 
     private ReleaseManifest() { } // EF
 
-    public ReleaseManifest(string version, string? url, string? notes, string? sha256, bool mandatory)
+    public ReleaseManifest(string channel, string version, string? url, string? notes, string? sha256, bool mandatory)
     {
+        Channel = NormalizeChannel(channel);
         Version = string.IsNullOrWhiteSpace(version) ? "0.0.0" : version.Trim();
         Url = string.IsNullOrWhiteSpace(url) ? null : url.Trim();
         Notes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim();
@@ -27,4 +32,8 @@ public sealed class ReleaseManifest
         Mandatory = mandatory;
         UpdatedAtUtc = DateTime.UtcNow;
     }
+
+    /// <summary>Só existem dois canais; qualquer coisa diferente de "canary" vira "stable".</summary>
+    public static string NormalizeChannel(string? c)
+        => string.Equals(c?.Trim(), Canary, StringComparison.OrdinalIgnoreCase) ? Canary : Stable;
 }
