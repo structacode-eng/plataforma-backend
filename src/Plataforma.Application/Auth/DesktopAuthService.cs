@@ -42,7 +42,12 @@ public sealed class DesktopAuthService
     public async Task<Result<DesktopSession>> LoginAsync(string? email, string? password, CancellationToken ct = default)
     {
         var user = await _users.GetByEmailAsync(User.Normalize(email ?? ""), ct);
-        if (user is null || !_hasher.Verify(password ?? "", user.PasswordHash))
+        if (user is null)
+        {
+            _hasher.BurnDummy(password ?? "");   // mesmo tempo de um login real (anti-enumeração)
+            return Result<DesktopSession>.Fail("E-mail ou senha inválidos.", "invalid_credentials");
+        }
+        if (!_hasher.Verify(password ?? "", user.PasswordHash))
             return Result<DesktopSession>.Fail("E-mail ou senha inválidos.", "invalid_credentials");
         if (!user.IsActive)
             return Result<DesktopSession>.Fail("Acesso revogado.", "user_inactive");

@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Plataforma.Application.Releases;
@@ -34,7 +36,9 @@ public sealed class CiController : ControllerBase
         CancellationToken ct)
     {
         var expected = _config["Ci:PublishToken"];
-        if (string.IsNullOrWhiteSpace(expected) || string.IsNullOrEmpty(token) || token != expected)
+        if (string.IsNullOrWhiteSpace(expected) || string.IsNullOrEmpty(token) ||
+            !CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(token), Encoding.UTF8.GetBytes(expected)))
             return Unauthorized(new { error = "Token de CI inválido.", code = "invalid_ci_token" });
 
         var r = await _releases.SetManifestAsync(req, ReleaseManifest.Canary, ct);

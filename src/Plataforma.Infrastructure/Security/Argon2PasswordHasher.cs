@@ -27,6 +27,16 @@ public sealed class Argon2PasswordHasher : IPasswordHasher
                $"{Convert.ToBase64String(salt)}${Convert.ToBase64String(hash)}";
     }
 
+    // Salt fixo só para "queimar" tempo de CPU no BurnDummy (o resultado é descartado).
+    private static readonly byte[] DummySalt = new byte[SaltSize];
+
+    /// <summary>Roda o Argon2 com o mesmo custo de um Verify real e descarta — equaliza
+    /// o tempo de resposta do login quando o e-mail não existe (anti-enumeração).</summary>
+    public void BurnDummy(string password)
+    {
+        try { Compute(password ?? "", DummySalt, HashSize); } catch { /* nunca propaga */ }
+    }
+
     public bool Verify(string password, string encodedHash)
     {
         var parts = encodedHash.Split('$');

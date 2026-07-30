@@ -58,10 +58,19 @@ public sealed class AuthService
         var email = User.Normalize(req.Email ?? "");
         var user = await _users.GetByEmailAsync(email, ct);
 
-        // Verifica o hash mesmo se o usuário não existe seria ideal p/ evitar timing;
-        // aqui mantemos simples e retornamos a mesma mensagem genérica.
-        if (user is null || !_hasher.Verify(req.Password ?? "", user.PasswordHash))
+        // Mesma mensagem E mesmo tempo quando o e-mail não existe (anti-enumeração por
+        // timing): roda um hash "dummy" de custo idêntico ao Verify.
+        if (user is null)
+        {
+            _hasher.BurnDummy(req.Password ?? "");
             return Result<TokenResponse>.Fail("Credenciais inválidas.", "invalid_credentials");
+        }
+        if (!_hasher.Verify(req.Password ?? "", user.PasswordHash))
+            return Result<TokenResponse>.Fail("Credenciais inválidas.", "invalid_credentials");
+
+        // Conta revogada não autentica em lugar nenhum (consistente com o login desktop).
+        if (!user.IsActive)
+            return Result<TokenResponse>.Fail("Acesso revogado.", "user_inactive");
 
         var (raw, token) = BuildRefreshToken(user.Id);
         await _refreshTokens.AddAsync(token, ct);
@@ -80,7 +89,7 @@ public sealed class AuthService
             return Result<TokenResponse>.Fail("Refresh token inválido ou expirado.", "invalid_token");
 
         var user = await _users.GetByIdAsync(stored.UserId, ct);
-        if (user is null)
+        if (user is null || !user.IsActive)   // conta revogada: o refresh para de funcionar
             return Result<TokenResponse>.Fail("Usuário não encontrado.", "invalid_token");
 
         // Rotação obrigatória: revoga o atual e emite um novo par.
