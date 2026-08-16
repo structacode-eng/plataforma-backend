@@ -15,14 +15,27 @@ namespace Plataforma.Api.Controllers;
 [ApiController]
 public sealed class CompatAuthController : ControllerBase
 {
+    /// <summary>
+    /// Cabeçalho com o slug do produto que está chamando ("revit-plugin",
+    /// "solutions"). Os dois produtos usam as mesmas contas; sem isto, os
+    /// contadores do <c>User</c> misturam o uso dos dois e não há como separar.
+    ///
+    /// <para>É informativo, não uma credencial: nada é autorizado com base
+    /// nele, e valor desconhecido cai em "desconhecido" na normalização.</para>
+    /// </summary>
+    public const string HeaderProduto = "X-Filippon-Product";
+
     private readonly DesktopAuthService _svc;
     public CompatAuthController(DesktopAuthService svc) => _svc = svc;
+
+    private string? Produto()
+        => Request.Headers.TryGetValue(HeaderProduto, out var v) ? v.ToString() : null;
 
     [HttpPost("/auth/login")]
     [EnableRateLimiting("auth")]
     public async Task<IActionResult> Login([FromBody] DesktopLoginRequest req, CancellationToken ct)
     {
-        var r = await _svc.LoginAsync(req?.Email, req?.Password, ct);
+        var r = await _svc.LoginAsync(req?.Email, req?.Password, Produto(), ct);
         if (!r.Success) return Unauthorized(new { error = r.Error, code = r.Code });
 
         var s = r.Value!;
@@ -39,7 +52,7 @@ public sealed class CompatAuthController : ControllerBase
     [HttpGet("/auth/me")]
     public async Task<IActionResult> Me(CancellationToken ct)
     {
-        var me = await _svc.GetMeAsync(User.GetUserId(), ct);
+        var me = await _svc.GetMeAsync(User.GetUserId(), Produto(), ct);
         if (me is null) return Unauthorized();
         return Ok(new DesktopMeResponse { Email = me.Email, Name = me.Name, Active = me.Active });
     }

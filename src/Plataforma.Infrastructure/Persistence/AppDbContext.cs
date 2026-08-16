@@ -16,6 +16,12 @@ public sealed class AppDbContext : DbContext, IUnitOfWork
     public DbSet<User> Users => Set<User>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
+    // Uso por produto — separa o que User.LoginCount mistura
+    public DbSet<UserProductAccess> UserProductAccesses => Set<UserProductAccess>();
+
+    // Telemetria: uso de ferramenta agregado por dia
+    public DbSet<UsageDaily> UsageDailies => Set<UsageDaily>();
+
     // Catálogo, planos, licenças, dispositivos (Marco 2)
     public DbSet<Plugin> Plugins => Set<Plugin>();
     public DbSet<Plan> Plans => Set<Plan>();
@@ -39,6 +45,36 @@ public sealed class AppDbContext : DbContext, IUnitOfWork
             e.Property(x => x.Role).HasConversion<int>();
             // defaultValue: true garante que usuários já existentes fiquem ATIVOS na migração.
             e.Property(x => x.IsActive).HasDefaultValue(true);
+        });
+
+        b.Entity<UserProductAccess>(e =>
+        {
+            e.ToTable("user_product_access");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Product).HasMaxLength(40).IsRequired();
+            // Uma linha por usuário+produto: o índice único é o que faz o
+            // "primeiro acesso" ser realmente o primeiro, mesmo com dois
+            // logins simultâneos do mesmo usuário em máquinas diferentes.
+            e.HasIndex(x => new { x.UserId, x.Product }).IsUnique();
+            // Consulta do painel: "quem usou o Solutions nos últimos 30 dias".
+            e.HasIndex(x => new { x.Product, x.LastSeenAtUtc });
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<UsageDaily>(e =>
+        {
+            e.ToTable("usage_daily");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Product).HasMaxLength(40).IsRequired();
+            e.Property(x => x.Command).HasMaxLength(UsageDaily.MaxComando).IsRequired();
+            e.Property(x => x.Day).HasColumnType("date");
+            // Chave real do upsert: o endpoint procura por esta combinação e
+            // incrementa. O índice único garante que dois envios simultâneos da
+            // mesma máquina não criem duas linhas para o mesmo dia.
+            e.HasIndex(x => new { x.UserId, x.Product, x.Command, x.Day }).IsUnique();
+            // Consultas do painel: sempre recortadas por período.
+            e.HasIndex(x => new { x.Day, x.Product });
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
         });
 
         b.Entity<RefreshToken>(e =>

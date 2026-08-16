@@ -1,0 +1,23 @@
+# Usuarios Filippon. Padrao: nome.sobrenome@filippon.com.br
+# (o dominio e' so o "usuario" de login; troque se quiser outro padrao)
+# Um e-mail por linha; linhas com # sao ignoradas.
+leonardo.caye@filippon
+bruno.cantini@filippon
+fabio.sato@filippon
+nathalya.neves@filippon
+julia.duarte@filippon
+eduardo.filippon@filippon
+veronica.weber@filippon
+julia.schmitt@filippon
+jeverson.davila@filippon
+daniel.filippon@filippon
+gabriel.stumpf@filippon
+gustavo.pletsch@filippon
+igor.montanha@filippon
+julia.gomes@filippon
+maria.alice.matos@filippon
+mauro.baumgratz@filippon
+pedro.gomes@filippon
+roger.sp@filippon
+tainara.almeida@filippon
+thiago.de.vargas@filippon

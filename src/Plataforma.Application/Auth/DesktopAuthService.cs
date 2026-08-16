@@ -30,16 +30,47 @@ public sealed class DesktopAuthService
     private readonly IPasswordHasher _hasher;
     private readonly IJwtTokenService _jwt;
     private readonly IUnitOfWork _uow;
+    private readonly IUserProductAccessRepository _acessos;
 
-    public DesktopAuthService(IUserRepository users, IPasswordHasher hasher, IJwtTokenService jwt, IUnitOfWork uow)
+    public DesktopAuthService(
+        IUserRepository users,
+        IPasswordHasher hasher,
+        IJwtTokenService jwt,
+        IUnitOfWork uow,
+        IUserProductAccessRepository acessos)
     {
         _users = users;
         _hasher = hasher;
         _jwt = jwt;
         _uow = uow;
+        _acessos = acessos;
     }
 
-    public async Task<Result<DesktopSession>> LoginAsync(string? email, string? password, CancellationToken ct = default)
+    /// <summary>
+    /// Registra o uso por produto. O <see cref="User.LoginCount"/> continua
+    /// existindo e contando tudo junto; esta linha é o que permite separar
+    /// depois quem usou o quê — o plugin do Revit e o Solutions compartilham as
+    /// mesmas credenciais e, sem isto, mexem nos mesmos dois campos.
+    /// </summary>
+    private async Task RegistrarUsoAsync(Guid userId, string? produto, bool ehLogin, CancellationToken ct)
+    {
+        var slug = UserProductAccess.Normalize(produto);
+        var acesso = await _acessos.GetAsync(userId, slug, ct);
+
+        if (acesso is null)
+        {
+            acesso = new UserProductAccess(userId, slug);
+            if (ehLogin) acesso.RegisterLogin();
+            await _acessos.AddAsync(acesso, ct);
+            return;
+        }
+
+        if (ehLogin) acesso.RegisterLogin();
+        else acesso.MarkSeen();
+    }
+
+    public async Task<Result<DesktopSession>> LoginAsync(
+        string? email, string? password, string? produto = null, CancellationToken ct = default)
     {
         var user = await _users.GetByEmailAsync(User.Normalize(email ?? ""), ct);
         if (user is null)
@@ -53,6 +84,7 @@ public sealed class DesktopAuthService
             return Result<DesktopSession>.Fail("Acesso revogado.", "user_inactive");
 
         user.RegisterLogin();
+        await RegistrarUsoAsync(user.Id, produto, ehLogin: true, ct);
         await _uow.SaveChangesAsync(ct);
 
         var (token, expires) = _jwt.CreateDesktopToken(user);
@@ -65,7 +97,7 @@ public sealed class DesktopAuthService
         });
     }
 
-    public async Task<DesktopMe?> GetMeAsync(Guid userId, CancellationToken ct = default)
+    public async Task<DesktopMe?> GetMeAsync(Guid userId, string? produto = null, CancellationToken ct = default)
     {
         var user = await _users.GetByIdAsync(userId, ct);
         if (user is null) return null;
@@ -74,6 +106,7 @@ public sealed class DesktopAuthService
         if (user.LastSeenAtUtc is null || (DateTime.UtcNow - user.LastSeenAtUtc.Value).TotalMinutes >= 5)
         {
             user.MarkSeen();
+            await RegistrarUsoAsync(user.Id, produto, ehLogin: false, ct);
             await _uow.SaveChangesAsync(ct);
         }
 

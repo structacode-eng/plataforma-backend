@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Plataforma.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using Plataforma.Infrastructure.Persistence;
 namespace Plataforma.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260816043108_UserProductAccess")]
+    partial class UserProductAccess
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -279,47 +282,6 @@ namespace Plataforma.Infrastructure.Persistence.Migrations
                     b.ToTable("release_manifests", (string)null);
                 });
 
-            modelBuilder.Entity("Plataforma.Domain.Entities.UsageDaily", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Command")
-                        .IsRequired()
-                        .HasMaxLength(60)
-                        .HasColumnType("character varying(60)");
-
-                    b.Property<int>("Count")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateOnly>("Day")
-                        .HasColumnType("date");
-
-                    b.Property<string>("Product")
-                        .IsRequired()
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)");
-
-                    b.Property<DateTime>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Day", "Product");
-
-                    b.HasIndex("UserId", "Product", "Command", "Day")
-                        .IsUnique();
-
-                    b.ToTable("usage_daily", (string)null);
-                });
-
             modelBuilder.Entity("Plataforma.Domain.Entities.User", b =>
                 {
                     b.Property<Guid>("Id")
@@ -442,15 +404,6 @@ namespace Plataforma.Infrastructure.Persistence.Migrations
                 });
 
             modelBuilder.Entity("Plataforma.Domain.Entities.RefreshToken", b =>
-                {
-                    b.HasOne("Plataforma.Domain.Entities.User", null)
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("Plataforma.Domain.Entities.UsageDaily", b =>
                 {
                     b.HasOne("Plataforma.Domain.Entities.User", null)
                         .WithMany()

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Plataforma.Application.Common;
 using Plataforma.Application.Licensing;
 using Plataforma.Application.Releases;
+using Plataforma.Application.Telemetry;
 
 namespace Plataforma.Api.Controllers;
 
@@ -18,11 +19,23 @@ public sealed class AdminController : ControllerBase
 {
     private readonly AdminCatalogService _svc;
     private readonly ReleaseService _releases;
-    public AdminController(AdminCatalogService svc, ReleaseService releases)
+    private readonly UsageQueryService _uso;
+    public AdminController(AdminCatalogService svc, ReleaseService releases, UsageQueryService uso)
     {
         _svc = svc;
         _releases = releases;
+        _uso = uso;
     }
+
+    /// <summary>
+    /// Uso das ferramentas no período (padrão: 30 dias). Owner apenas — mostra
+    /// o que cada pessoa, nominalmente, abriu.
+    /// </summary>
+    [HttpGet("usage")]
+    [Authorize(Roles = "Owner")]
+    public async Task<IActionResult> Usage(
+        [FromQuery] int dias, [FromQuery] string? produto, CancellationToken ct)
+        => Ok(await _uso.RelatorioAsync(dias, produto, ct));
 
     [HttpPost("plugins")]
     [Authorize(Roles = "Owner")]

@@ -18,10 +18,12 @@ public sealed class AdminCatalogService
     private readonly IDeviceRepository _devices;
     private readonly IPasswordHasher _hasher;
     private readonly IUnitOfWork _uow;
+    private readonly IUserProductAccessRepository _acessos;
 
     public AdminCatalogService(
         IPluginRepository plugins, IPlanRepository plans, ILicenseRepository licenses,
-        IUserRepository users, IDeviceRepository devices, IPasswordHasher hasher, IUnitOfWork uow)
+        IUserRepository users, IDeviceRepository devices, IPasswordHasher hasher, IUnitOfWork uow,
+        IUserProductAccessRepository acessos)
     {
         _plugins = plugins;
         _plans = plans;
@@ -30,6 +32,7 @@ public sealed class AdminCatalogService
         _devices = devices;
         _hasher = hasher;
         _uow = uow;
+        _acessos = acessos;
     }
 
     /// <summary>Cria uma conta (RF-AUTH-001 por ação administrativa). Cadastro público está fechado;
@@ -54,12 +57,28 @@ public sealed class AdminCatalogService
         return Result<UserDto>.Ok(new UserDto(user.Email, userRole.ToString(), user.IsActive, user.CreatedAtUtc, user.LastSeenAtUtc, user.LoginCount));
     }
 
-    /// <summary>Lista as contas (para o painel admin).</summary>
+    /// <summary>Lista as contas (para o painel admin), com o uso por produto.</summary>
     public async Task<Result<IReadOnlyList<UserDto>>> ListUsersAsync(int limit = 500, CancellationToken ct = default)
     {
         var users = await _users.ListAsync(limit, ct);
+
+        // Uma consulta só para todos os usuários da página, e não uma por linha.
+        var acessos = await _acessos.ListByUsersAsync(users.Select(u => u.Id), ct);
+        var porUsuario = acessos
+            .GroupBy(a => a.UserId)
+            .ToDictionary(
+                g => g.Key,
+                g => (IReadOnlyList<ProdutoUsoDto>)g
+                    .OrderBy(a => a.Product)
+                    .Select(a => new ProdutoUsoDto(a.Product, a.FirstSeenAtUtc, a.LastSeenAtUtc, a.LoginCount))
+                    .ToList());
+
         var list = (IReadOnlyList<UserDto>)users
-            .Select(u => new UserDto(u.Email, u.Role.ToString(), u.IsActive, u.CreatedAtUtc, u.LastSeenAtUtc, u.LoginCount)).ToList();
+            .Select(u => new UserDto(
+                u.Email, u.Role.ToString(), u.IsActive, u.CreatedAtUtc, u.LastSeenAtUtc, u.LoginCount,
+                porUsuario.TryGetValue(u.Id, out var p) ? p : Array.Empty<ProdutoUsoDto>()))
+            .ToList();
+
         return Result<IReadOnlyList<UserDto>>.Ok(list);
     }
 

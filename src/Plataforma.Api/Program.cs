@@ -4,10 +4,12 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models;
 using Plataforma.Api.Seed;
 using Plataforma.Application.Auth;
 using Plataforma.Application.Licensing;
 using Plataforma.Application.Releases;
+using Plataforma.Application.Telemetry;
 using Plataforma.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -19,7 +21,37 @@ if (!string.IsNullOrWhiteSpace(port))
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+// Swagger com botão "Authorize". Sem isto o UI não tem onde colar o token e os
+// endpoints protegidos (todo o /v1/admin) só dão para testar por fora.
+// SecuritySchemeType.Http + Scheme "bearer" faz o próprio Swagger montar o
+// cabeçalho: cola-se só o token, sem a palavra "Bearer" na frente.
+builder.Services.AddSwaggerGen(opcoes =>
+{
+    opcoes.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = "Cole o access_token devolvido por POST /auth/login. Só o token.",
+    });
+
+    opcoes.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer",
+                },
+            },
+            Array.Empty<string>()
+        },
+    });
+});
 
 // Infraestrutura: DbContext (Npgsql), repositórios, hasher Argon2id, JWT e lease service.
 builder.Services.AddInfrastructure(builder.Configuration);
@@ -30,6 +62,8 @@ builder.Services.AddScoped<DesktopAuthService>();
 builder.Services.AddScoped<LicenseService>();
 builder.Services.AddScoped<AdminCatalogService>();
 builder.Services.AddScoped<ReleaseService>();
+builder.Services.AddScoped<TelemetryService>();
+builder.Services.AddScoped<UsageQueryService>();
 
 // Validação de JWT nas requisições autenticadas (a chave vem de segredo).
 var jwtKey = builder.Configuration["Jwt:Key"]
@@ -78,6 +112,16 @@ builder.Services.AddRateLimiter(options =>
         RateLimitPartition.GetFixedWindowLimiter(
             ctx.Connection.RemoteIpAddress?.ToString() ?? "sem-ip",
             _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1) }));
+
+    // Telemetria: o plugin envia em lote ao fechar o Revit, no maximo algumas
+    // vezes por sessao. O limite baixo existe porque cada requisicao pode gerar
+    // centenas de escritas no banco - e o banco e' o recurso escasso aqui.
+    // Particionado por IP como as demais; num escritorio com NAT todos dividem
+    // a mesma cota, e 30/min ainda cobre bem mais maquinas do que existem.
+    options.AddPolicy("telemetry", ctx =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            ctx.Connection.RemoteIpAddress?.ToString() ?? "sem-ip",
+            _ => new FixedWindowRateLimiterOptions { PermitLimit = 30, Window = TimeSpan.FromMinutes(1) }));
 });
 
 var app = builder.Build();

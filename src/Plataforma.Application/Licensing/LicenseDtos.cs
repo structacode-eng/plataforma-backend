@@ -4,7 +4,16 @@ namespace Plataforma.Application.Licensing;
 public record CreateUserRequest(string Email, string Password, string? Role);
 public record ResetPasswordRequest(string Password);
 public record SetRoleRequest(string Role);
-public record UserDto(string Email, string Role, bool IsActive, DateTime CreatedAtUtc, DateTime? LastSeenAtUtc, int LoginCount);
+public record UserDto(
+    string Email, string Role, bool IsActive, DateTime CreatedAtUtc,
+    DateTime? LastSeenAtUtc, int LoginCount,
+    /// <summary>Uso por produto. Vazio = conta que ainda não abriu nada desde
+    /// que o rastreio por produto entrou (LoginCount pode ser > 0 e esta lista
+    /// vazia: o contador antigo é a soma histórica de todos os produtos).</summary>
+    IReadOnlyList<ProdutoUsoDto>? Produtos = null);
+
+/// <summary>Uso de UM produto por um usuário.</summary>
+public record ProdutoUsoDto(string Produto, DateTime PrimeiroAcessoUtc, DateTime UltimoAcessoUtc, int Logins);
 public record CreatePluginRequest(string Slug, string Name, string? Description);
 public record CreatePlanRequest(string Slug, string Name, string BillingCycle, int DeviceLimit, string[] PluginSlugs);
 public record IssueLicenseRequest(

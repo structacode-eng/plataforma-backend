@@ -23,6 +23,8 @@ public static class DependencyInjection
 
         // Identidade (Marco 1)
         services.AddScoped<IUserRepository, UserRepository>();
+        services.AddScoped<IUserProductAccessRepository, UserProductAccessRepository>();
+        services.AddScoped<IUsageRepository, UsageRepository>();
         services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
         services.AddSingleton<IPasswordHasher, Argon2PasswordHasher>();
         services.AddScoped<IJwtTokenService, JwtTokenService>();

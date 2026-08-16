@@ -1,0 +1,3 @@
+# Lista de teste - usada so no backend LOCAL (branch dev do Neon).
+# Nao aponte esta lista para producao.
+teste.solutions@filippon

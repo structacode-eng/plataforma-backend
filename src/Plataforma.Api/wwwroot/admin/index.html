@@ -81,7 +81,7 @@
           <button id="refreshBtn" class="ghost">Atualizar</button>
         </div>
         <table>
-          <thead><tr><th>E-mail</th><th>Papel</th><th>Status</th><th>Último acesso</th><th>Logins</th><th style="text-align:right">Ações</th></tr></thead>
+          <thead><tr><th>E-mail</th><th>Papel</th><th>Status</th><th>Produtos</th><th>Último acesso</th><th>Logins</th><th style="text-align:right">Ações</th></tr></thead>
           <tbody id="usersBody"></tbody>
         </table>
         <div id="usersMsg" class="msg"></div>
@@ -124,6 +124,38 @@
           </div>
         </details>
         <div id="relMsg" class="msg"></div>
+      </div>
+
+      <div class="card">
+        <div class="row between">
+          <h2 style="margin:0">Uso das ferramentas</h2>
+          <div class="row">
+            <select id="usageDias" class="role">
+              <option value="7">últimos 7 dias</option>
+              <option value="30" selected>últimos 30 dias</option>
+              <option value="90">últimos 90 dias</option>
+            </select>
+            <button id="usageBtn" class="ghost">Atualizar</button>
+          </div>
+        </div>
+        <p class="muted" style="margin:6px 0 12px">Contagem de aberturas, somada por dia. Clique numa ferramenta para ver quem usou.</p>
+
+        <div class="row" style="align-items:stretch; gap:12px; margin-bottom:8px">
+          <div style="flex:1; border:1px solid var(--line); border-radius:10px; padding:12px">
+            <div class="muted" style="font-size:11px; text-transform:uppercase; letter-spacing:.04em">Aberturas no período</div>
+            <div id="usageTotal" style="font-size:18px; font-weight:700; margin-top:4px">—</div>
+          </div>
+          <div style="flex:1; border:1px solid var(--line); border-radius:10px; padding:12px">
+            <div class="muted" style="font-size:11px; text-transform:uppercase; letter-spacing:.04em">Pessoas ativas</div>
+            <div id="usagePessoas" style="font-size:18px; font-weight:700; margin-top:4px">—</div>
+          </div>
+        </div>
+
+        <table>
+          <thead><tr><th>Ferramenta</th><th style="text-align:right">Aberturas</th><th style="text-align:right">Pessoas</th></tr></thead>
+          <tbody id="usageBody"></tbody>
+        </table>
+        <div id="usageMsg" class="msg"></div>
       </div>
     </section>
   </div>
@@ -172,7 +204,7 @@
         setTokens(await res.json(), em);
         const test = await apiFetch('/v1/admin/users');
         if (test.status === 403) { clearTokens(); $('loginMsg').textContent = 'Esta conta não é administrador (Owner).'; return; }
-        $('whoami').textContent = em; show('admin'); renderUsers(await test.json()); loadRelease();
+        $('whoami').textContent = em; show('admin'); renderUsers(await test.json()); loadRelease(); loadUsage();
       } catch (e) { $('loginMsg').textContent = 'Erro ao conectar ao servidor.'; }
     }
 
@@ -204,6 +236,29 @@
       return `<select class="role" data-email="${esc(u.email)}" data-current="${esc(u.role)}">${opts}</select>`;
     }
 
+    // Rótulos dos produtos. Slug desconhecido aparece como veio, sem esconder:
+    // se um cliente novo começar a chamar a API, você quer VER isso na tabela.
+    const PRODUTO_LABEL = {
+      'revit-plugin': 'Revit',
+      'solutions': 'Solutions',
+      'admin-web': 'Admin',
+      'desconhecido': '?',
+    };
+
+    // Chips de produto. Vazio significa "não abriu nada desde que o rastreio
+    // entrou" - e não "nunca usou": o loginCount ao lado é a soma histórica de
+    // todos os produtos, de antes desta coluna existir.
+    function produtosChips(u) {
+      const lista = u.produtos || [];
+      if (!lista.length) return '<span style="color:#999">—</span>';
+      return lista.map(p => {
+        const nome = PRODUTO_LABEL[p.produto] || p.produto;
+        const titulo = `${p.logins} login(s) · desde ${new Date(p.primeiroAcessoUtc).toLocaleDateString('pt-BR')}`
+          + ` · visto ${relTime(p.ultimoAcessoUtc)}`;
+        return `<span class="badge on" title="${esc(titulo)}">${esc(nome)}</span>`;
+      }).join(' ');
+    }
+
     function renderUsers(users) {
       const body = $('usersBody'); body.innerHTML = '';
       for (const u of users) {
@@ -216,6 +271,7 @@
         const act = resetBtn + ' ' + toggleBtn + ' ' + delBtn;
         const tr = document.createElement('tr');
         tr.innerHTML = `<td>${esc(u.email)}</td><td>${roleSelect(u)}</td><td>${badge}</td>` +
+                       `<td>${produtosChips(u)}</td>` +
                        `<td>${relTime(u.lastSeenAtUtc)}</td><td>${u.loginCount ?? 0}</td>` +
                        `<td class="actions">${act}</td>`;
         body.appendChild(tr);
@@ -311,6 +367,73 @@
       else { let m = 'Falha ao publicar.'; try { m = (await res.json()).error || m; } catch {} $('relMsg').textContent = m; }
     }
 
+    // ===== Uso das ferramentas =====
+    // Detalhe por pessoa da última consulta, agrupado por comando. Fica aqui
+    // porque o endpoint devolve ranking e detalhe juntos: expandir uma linha
+    // não precisa de nova ida ao servidor.
+    let usagePorComando = {};
+
+    // Slug -> rótulo legível. Sem tabela de tradução de propósito: a lista de
+    // ferramentas muda a cada versão do plugin, e um mapa aqui ficaria velho
+    // exatamente na ferramenta nova que se quer olhar.
+    function nomeFerramenta(slug) {
+      return slug.replace(/_/g, ' ').replace(/(^|\s)\S/g, c => c.toUpperCase());
+    }
+
+    async function loadUsage() {
+      $('usageMsg').textContent = 'Carregando…';
+      const dias = $('usageDias').value;
+      const res = await apiFetch('/v1/admin/usage?dias=' + encodeURIComponent(dias));
+      if (!res.ok) { $('usageMsg').textContent = 'Falha ao carregar o uso.'; return; }
+
+      const d = await res.json();
+      $('usageTotal').textContent = d.totalGeral.toLocaleString('pt-BR');
+      $('usagePessoas').textContent = d.pessoasAtivas;
+
+      usagePorComando = {};
+      (d.porPessoa || []).forEach(p => {
+        (usagePorComando[p.comando] = usagePorComando[p.comando] || []).push(p);
+      });
+
+      renderUsage(d.ferramentas || []);
+      $('usageMsg').textContent = d.ferramentas.length
+        ? `${d.de} a ${d.ate}`
+        : 'Nenhum uso registrado no período. As máquinas só reportam a partir da versão do plugin que tem telemetria.';
+    }
+
+    function renderUsage(ferramentas) {
+      $('usageBody').innerHTML = ferramentas.map(f =>
+        `<tr data-cmd="${f.comando}" style="cursor:pointer">` +
+          `<td>${nomeFerramenta(f.comando)}</td>` +
+          `<td style="text-align:right; font-variant-numeric:tabular-nums">${f.total.toLocaleString('pt-BR')}</td>` +
+          `<td style="text-align:right; font-variant-numeric:tabular-nums">${f.pessoas}</td>` +
+        `</tr>` +
+        `<tr id="det-${f.comando}" style="display:none"><td colspan="3" style="background:#f8fafc; padding:0">` +
+          `<div style="padding:10px 14px">` + detalhePessoas(f.comando) + `</div>` +
+        `</td></tr>`
+      ).join('');
+    }
+
+    function detalhePessoas(comando) {
+      const lista = (usagePorComando[comando] || []).slice().sort((a, b) => b.total - a.total);
+      if (!lista.length) return '<span class="muted">Sem detalhe por pessoa.</span>';
+      return lista.map(p =>
+        `<div class="row between" style="padding:3px 0; font-size:13px">` +
+          `<span>${p.email}</span>` +
+          `<span class="muted">${p.total} · último uso ${p.ultimoDia}</span>` +
+        `</div>`
+      ).join('');
+    }
+
+    $('usageBtn').onclick = loadUsage;
+    $('usageDias').onchange = loadUsage;
+    $('usageBody').addEventListener('click', e => {
+      const tr = e.target.closest('tr[data-cmd]');
+      if (!tr) return;
+      const det = $('det-' + tr.dataset.cmd);
+      if (det) det.style.display = det.style.display === 'none' ? '' : 'none';
+    });
+
     $('loginBtn').onclick = login;
     $('loginPass').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
     $('logoutBtn').onclick = () => { clearTokens(); show('login'); };
@@ -333,7 +456,7 @@
     // Retoma sessão se houver token salvo.
     if (access) {
       apiFetch('/v1/admin/users').then(async r => {
-        if (r.ok) { $('whoami').textContent = email || ''; show('admin'); renderUsers(await r.json()); loadRelease(); }
+        if (r.ok) { $('whoami').textContent = email || ''; show('admin'); renderUsers(await r.json()); loadRelease(); loadUsage(); }
         else { clearTokens(); show('login'); }
       }).catch(() => show('login'));
     } else { show('login'); }
