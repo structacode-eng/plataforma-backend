@@ -38,6 +38,10 @@
       --ring:#6b7783;
       --shadow:0 1px 2px rgba(27,33,40,.06), 0 10px 28px -16px rgba(27,33,40,.25);
       --radius:14px;
+      /* Altura única para botão, input e select. Igualar por padding não
+         funciona: select e button calculam a caixa de formas diferentes e
+         sobra sempre 1-2px de diferença. */
+      --ctl-h:40px; --ctl-h-sm:32px;
     }
     @media (prefers-color-scheme: dark) {
       :root:not([data-theme="light"]) {
@@ -105,9 +109,10 @@
     }
     .topbar-actions { display:flex; align-items:center; gap:8px; min-width:0; }
     .who {
+      display:inline-flex; align-items:center; height:var(--ctl-h);
       font-size:13px; color:var(--muted);
       max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-      padding:4px 10px; border:1px solid var(--line); border-radius:999px; background:var(--surface-2);
+      padding:0 14px; border:1px solid var(--line); border-radius:999px; background:var(--surface-2);
     }
 
     /* ===== Layout ===== */
@@ -136,31 +141,51 @@
     .card-sub { font-size:13px; color:var(--muted); margin-top:4px; max-width:70ch; }
     .card-tools { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
     .card-body { margin-top:16px; }
+    [hidden] { display:none !important; }
+
+    /* ===== Seções recolhíveis =====
+       Padrão de acordeão: o botão fica DENTRO do h2 (h2 não cabe dentro de
+       button — conteúdo de frase apenas). Os controles do card ficam fora do
+       botão, senão clicar em "Atualizar" também recolhia a seção. */
+    .card-h { margin:0; font-size:inherit; font-weight:inherit; }
+    .card-toggle {
+      display:inline-flex; align-items:center; gap:8px;
+      margin:-4px -6px; padding:4px 6px; border:0; border-radius:8px;
+      background:transparent; color:var(--ink); font:inherit;
+      font-size:16px; font-weight:650; letter-spacing:-.01em; cursor:pointer; text-align:left;
+    }
+    .card-toggle:hover { color:var(--muted); }
+    .chev { flex:0 0 auto; color:var(--muted); transition:transform .15s ease; }
+    .card-toggle[aria-expanded="false"] .chev { transform:rotate(-90deg); }
+    .card-count { font-size:13px; font-weight:500; color:var(--muted); }
+    /* Recolhido, o subtítulo é peso morto: sobra só título, contagem e ações. */
+    .card.is-collapsed .card-sub { display:none; }
+    .card.is-collapsed { padding-bottom:16px; }
 
     /* ===== Campos ===== */
     .field { display:flex; flex-direction:column; gap:6px; }
     .field > label { font-size:12px; font-weight:600; color:var(--ink-soft); }
     .input {
-      width:100%; padding:10px 12px; font:inherit; font-size:14px;
+      width:100%; height:var(--ctl-h); padding:0 12px; font:inherit; font-size:14px; line-height:1;
       color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:10px;
       transition:border-color .12s ease, box-shadow .12s ease;
     }
     .input::placeholder { color:var(--muted); opacity:.75; }
     .input:hover { border-color:var(--muted); }
     .input:focus { outline:none; border-color:var(--brand); box-shadow:0 0 0 3px var(--brand-tint); }
-    textarea.input { min-height:72px; resize:vertical; }
+    textarea.input { height:auto; min-height:72px; padding:10px 12px; line-height:1.5; resize:vertical; }
     select.input { cursor:pointer; }
     /* Dentro da tabela a largura da célula é o conteúdo: sem min-width o select
        de papel encolhe até sobrar só a setinha. */
     select.role { width:auto; min-width:112px; }
-    .input-sm { padding:6px 10px; font-size:13px; border-radius:8px; }
+    .input-sm { height:var(--ctl-h-sm); padding:0 10px; font-size:13px; border-radius:8px; }
     .chk { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ink-soft); cursor:pointer; }
     .chk input { width:16px; height:16px; accent-color:var(--brand); cursor:pointer; }
 
     /* ===== Botões ===== */
     .btn {
       display:inline-flex; align-items:center; justify-content:center; gap:6px;
-      padding:9px 14px; font:inherit; font-size:14px; font-weight:600; line-height:1.2;
+      height:var(--ctl-h); padding:0 14px; font:inherit; font-size:14px; font-weight:600; line-height:1;
       border:1px solid var(--line); border-radius:10px; cursor:pointer;
       background:var(--surface-2); color:var(--ink-soft);
       transition:background .12s ease, border-color .12s ease, color .12s ease;
@@ -182,8 +207,9 @@
     .btn-danger-soft:hover { background:var(--danger-bg); border-color:var(--danger-line); color:var(--danger); }
     .btn-ok-soft { background:transparent; color:var(--ok); border-color:var(--line); }
     .btn-ok-soft:hover { background:var(--ok-solid); border-color:var(--ok-solid); color:var(--ok-solid-ink); }
-    .btn-sm { padding:5px 10px; font-size:13px; border-radius:8px; }
-    .btn-icon { padding:8px; width:36px; height:36px; }
+    .btn-sm { height:var(--ctl-h-sm); padding:0 10px; font-size:13px; border-radius:8px; }
+    .btn-icon { width:var(--ctl-h); height:var(--ctl-h); padding:0; }
+    .btn-sm.btn-icon { width:var(--ctl-h-sm); height:var(--ctl-h-sm); }
     .btn-block { width:100%; }
 
     /* ===== Mensagens de estado ===== */
@@ -403,14 +429,20 @@
       <section class="card">
         <div class="card-head">
           <div>
-            <h2 class="card-title">Usuários</h2>
+            <h2 class="card-h">
+              <button type="button" class="card-toggle" aria-expanded="true" aria-controls="bodyUsuarios">
+                <svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+                <span>Usuários</span>
+                <span class="card-count" id="usersCount"></span>
+              </button>
+            </h2>
             <p class="card-sub">Papel, acesso e uso por produto de cada conta.</p>
           </div>
           <div class="card-tools">
             <button id="refreshBtn" class="btn btn-ghost btn-sm">Atualizar</button>
           </div>
         </div>
-        <div class="card-body">
+        <div class="card-body" id="bodyUsuarios">
           <div class="table-scroll">
             <table>
               <thead>
@@ -490,7 +522,13 @@
       <section class="card">
         <div class="card-head">
           <div>
-            <h2 class="card-title">Uso das ferramentas</h2>
+            <h2 class="card-h">
+              <button type="button" class="card-toggle" aria-expanded="true" aria-controls="bodyUso">
+                <svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+                <span>Uso das ferramentas</span>
+                <span class="card-count" id="usageCount"></span>
+              </button>
+            </h2>
             <p class="card-sub">Contagem de aberturas, somada por dia. Clique numa ferramenta para ver quem usou.</p>
           </div>
           <div class="card-tools">
@@ -502,7 +540,7 @@
             <button id="usageBtn" class="btn btn-ghost btn-sm">Atualizar</button>
           </div>
         </div>
-        <div class="card-body">
+        <div class="card-body" id="bodyUso">
           <div class="table-scroll">
             <table>
               <thead>
@@ -560,6 +598,31 @@
     // Sem escolha explícita, o painel acompanha o sistema em tempo real.
     prefereEscuro.addEventListener('change', pintaBotaoTema);
     pintaBotaoTema();
+
+    // ===== Seções recolhíveis =====
+    // O estado fica em localStorage, não em sessionStorage: quem recolhe
+    // "Usuários" quer ele recolhido amanhã também, não só até o logout.
+    const SECOES_KEY = 'fp_secoes';
+    function secoesSalvas() {
+      try { return JSON.parse(localStorage.getItem(SECOES_KEY)) || {}; } catch (e) { return {}; }
+    }
+    function setSecao(btn, aberto) {
+      btn.setAttribute('aria-expanded', String(aberto));
+      const corpo = $(btn.getAttribute('aria-controls'));
+      if (corpo) corpo.hidden = !aberto;
+      btn.closest('.card').classList.toggle('is-collapsed', !aberto);
+    }
+    document.querySelectorAll('.card-toggle').forEach(btn => {
+      const salvo = secoesSalvas()[btn.getAttribute('aria-controls')];
+      if (salvo === false) setSecao(btn, false);
+      btn.onclick = () => {
+        const aberto = btn.getAttribute('aria-expanded') !== 'true';
+        setSecao(btn, aberto);
+        const st = secoesSalvas();
+        st[btn.getAttribute('aria-controls')] = aberto;
+        try { localStorage.setItem(SECOES_KEY, JSON.stringify(st)); } catch (e) {}
+      };
+    });
 
     function show(view) {
       $('loginView').style.display = view === 'login' ? '' : 'none';
@@ -670,6 +733,8 @@
       }
       if (!users.length) body.innerHTML = '<tr><td colspan="7" class="empty">Nenhuma conta cadastrada.</td></tr>';
       msg('usersMsg', users.length + ' conta(s).');
+      // Contagem no cabeçalho: recolhido, a seção ainda diz quanta coisa tem.
+      $('usersCount').textContent = users.length ? '· ' + users.length + ' contas' : '';
 
       const ativas = users.filter(u => u.isActive).length;
       $('kpiContas').textContent = users.length;
@@ -798,6 +863,7 @@
       });
 
       renderUsage(d.ferramentas || []);
+      $('usageCount').textContent = d.ferramentas.length ? '· ' + d.ferramentas.length + ' ferramentas' : '';
       msg('usageMsg', d.ferramentas.length
         ? `${d.de} a ${d.ate}`
         : 'Nenhum uso registrado no período. As máquinas só reportam a partir da versão do plugin que tem telemetria.');
