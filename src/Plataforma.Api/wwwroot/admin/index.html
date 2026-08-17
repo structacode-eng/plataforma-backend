@@ -552,6 +552,33 @@
           <div id="usageMsg" class="msg"></div>
         </div>
       </section>
+
+      <!-- Uso por pessoa -->
+      <section class="card">
+        <div class="card-head">
+          <div>
+            <h2 class="card-h">
+              <button type="button" class="card-toggle" aria-expanded="true" aria-controls="bodyPessoas">
+                <svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+                <span>Uso por pessoa</span>
+                <span class="card-count" id="pessoasCount"></span>
+              </button>
+            </h2>
+            <p class="card-sub">O mesmo período do quadro acima, visto pelo outro lado. Clique numa pessoa para ver quais ferramentas ela abriu.</p>
+          </div>
+        </div>
+        <div class="card-body" id="bodyPessoas">
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr><th>Pessoa</th><th class="right">Ferramentas</th><th class="right">Aberturas</th><th>Último uso</th></tr>
+              </thead>
+              <tbody id="pessoasBody"></tbody>
+            </table>
+          </div>
+          <div id="pessoasMsg" class="msg"></div>
+        </div>
+      </section>
     </main>
   </div>
 
@@ -846,16 +873,28 @@
       return slug.replace(/_/g, ' ').replace(/(^|\s)\S/g, c => c.toUpperCase());
     }
 
+    // "2026-08-16" -> "16/08/2026". O servidor manda DateOnly em ISO; o resto do
+    // painel mostra data em pt-BR e não faz sentido esta ser a exceção.
+    function diaBR(iso) {
+      if (!iso) return '—';
+      const [a, m, d] = String(iso).split('-');
+      return (a && m && d) ? `${d}/${m}/${a}` : iso;
+    }
+
     async function loadUsage() {
       msg('usageMsg', 'Carregando…');
       const dias = $('usageDias').value;
       const res = await apiFetch('/v1/admin/usage?dias=' + encodeURIComponent(dias));
-      if (!res.ok) { msg('usageMsg', 'Falha ao carregar o uso.', 'err'); return; }
+      if (!res.ok) {
+        msg('usageMsg', 'Falha ao carregar o uso.', 'err');
+        msg('pessoasMsg', 'Falha ao carregar o uso.', 'err');
+        return;
+      }
 
       const d = await res.json();
       $('usageTotal').textContent = d.totalGeral.toLocaleString('pt-BR');
       $('usagePessoas').textContent = d.pessoasAtivas;
-      $('kpiPeriodo').textContent = `${d.de} a ${d.ate}`;
+      $('kpiPeriodo').textContent = `${diaBR(d.de)} a ${diaBR(d.ate)}`;
 
       usagePorComando = {};
       (d.porPessoa || []).forEach(p => {
@@ -865,8 +904,11 @@
       renderUsage(d.ferramentas || []);
       $('usageCount').textContent = d.ferramentas.length ? '· ' + d.ferramentas.length + ' ferramentas' : '';
       msg('usageMsg', d.ferramentas.length
-        ? `${d.de} a ${d.ate}`
+        ? `${diaBR(d.de)} a ${diaBR(d.ate)}`
         : 'Nenhum uso registrado no período. As máquinas só reportam a partir da versão do plugin que tem telemetria.');
+
+      renderPessoas(d.porPessoa || []);
+      msg('pessoasMsg', (d.porPessoa || []).length ? `${diaBR(d.de)} a ${diaBR(d.ate)}` : '');
     }
 
     function renderUsage(ferramentas) {
@@ -894,22 +936,77 @@
       return lista.map(p =>
         `<div class="usage-pessoa">` +
           `<span>${esc(p.email)}</span>` +
-          `<span class="muted num">${p.total} · último uso ${esc(p.ultimoDia)}</span>` +
+          `<span class="muted num">${p.total} · último uso ${diaBR(p.ultimoDia)}</span>` +
+        `</div>`
+      ).join('');
+    }
+
+    // ===== Uso por pessoa =====
+    // Mesmo lote do ranking, agrupado pelo outro eixo: "quem usou o quê" em vez
+    // de "o que foi usado por quem". Nenhuma requisição a mais — o endpoint já
+    // devolve o detalhe por pessoa inteiro, sem corte.
+    function agrupaPorPessoa(porPessoa) {
+      const mapa = new Map();
+      for (const p of porPessoa) {
+        let r = mapa.get(p.email);
+        if (!r) { r = { email: p.email, total: 0, ultimoDia: '', ferramentas: [] }; mapa.set(p.email, r); }
+        r.total += p.total;
+        // yyyy-MM-dd ordena certo como texto, então dá para comparar direto.
+        if (p.ultimoDia > r.ultimoDia) r.ultimoDia = p.ultimoDia;
+        r.ferramentas.push({ comando: p.comando, total: p.total, ultimoDia: p.ultimoDia });
+      }
+      const lista = [...mapa.values()];
+      lista.forEach(r => r.ferramentas.sort((a, b) => b.total - a.total));
+      return lista.sort((a, b) => b.total - a.total);
+    }
+
+    function renderPessoas(porPessoa) {
+      const lista = agrupaPorPessoa(porPessoa);
+      $('pessoasCount').textContent = lista.length ? '· ' + lista.length + ' pessoas' : '';
+      if (!lista.length) {
+        $('pessoasBody').innerHTML = '<tr><td colspan="4" class="empty">Ninguém abriu ferramenta no período.</td></tr>';
+        return;
+      }
+      // Par linha/detalhe casado por índice, como no ranking: e-mail é texto e
+      // não serve de id de elemento.
+      $('pessoasBody').innerHTML = lista.map((r, i) =>
+        `<tr class="usage-row" data-i="${i}">` +
+          `<td>${esc(r.email)}</td>` +
+          `<td class="right num">${r.ferramentas.length}</td>` +
+          `<td class="right num">${r.total.toLocaleString('pt-BR')}</td>` +
+          `<td>${diaBR(r.ultimoDia)}</td>` +
+        `</tr>` +
+        `<tr class="usage-det" id="pes-${i}" style="display:none"><td colspan="4">` +
+          `<div class="usage-det-in">` + detalheFerramentas(r.ferramentas) + `</div>` +
+        `</td></tr>`
+      ).join('');
+    }
+
+    function detalheFerramentas(ferramentas) {
+      return ferramentas.map(f =>
+        `<div class="usage-pessoa">` +
+          `<span>${esc(nomeFerramenta(f.comando))}</span>` +
+          `<span class="muted num">${f.total.toLocaleString('pt-BR')} · último uso ${diaBR(f.ultimoDia)}</span>` +
         `</div>`
       ).join('');
     }
 
     $('usageBtn').onclick = loadUsage;
     $('usageDias').onchange = loadUsage;
-    $('usageBody').addEventListener('click', e => {
-      const tr = e.target.closest('tr[data-i]');
-      if (!tr) return;
-      const det = $('det-' + tr.dataset.i);
-      if (!det) return;
-      const aberto = det.style.display === 'none';
-      det.style.display = aberto ? '' : 'none';
-      tr.classList.toggle('open', aberto);
-    });
+    // As duas tabelas de uso expandem igual; muda só o prefixo do id do detalhe.
+    function ligaExpansao(tbodyId, prefixo) {
+      $(tbodyId).addEventListener('click', e => {
+        const tr = e.target.closest('tr[data-i]');
+        if (!tr) return;
+        const det = $(prefixo + tr.dataset.i);
+        if (!det) return;
+        const aberto = det.style.display === 'none';
+        det.style.display = aberto ? '' : 'none';
+        tr.classList.toggle('open', aberto);
+      });
+    }
+    ligaExpansao('usageBody', 'det-');
+    ligaExpansao('pessoasBody', 'pes-');
 
     $('loginBtn').onclick = login;
     $('loginEmail').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
