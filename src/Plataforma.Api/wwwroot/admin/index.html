@@ -131,6 +131,18 @@
     .kpi-hint { display:block; font-size:12px; color:var(--muted); margin-top:2px;
                 overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
+    /* Versões no KPI: uma linha por produto. Menor que o kpi-value dos
+       outros cards de propósito - são dois valores, não um destaque. */
+    .kpi-versoes { margin-top:6px; display:flex; flex-direction:column; gap:2px; }
+    .kpi-versao {
+      display:flex; align-items:baseline; justify-content:space-between; gap:10px;
+      font-size:13px; color:var(--muted);
+    }
+    .kpi-versao b {
+      font-size:15px; font-weight:700; color:var(--ink);
+      font-variant-numeric:tabular-nums;
+    }
+
     /* ===== Blocos de produto (card de versão) ===== */
     .prod-bloco { margin-bottom:18px; }
     .prod-bloco:last-of-type { margin-bottom:4px; }
@@ -393,8 +405,13 @@
           <span class="kpi-hint" id="kpiContasHint">—</span>
         </div>
         <div class="kpi">
-          <span class="kpi-label">Versão estável</span>
-          <span class="kpi-value" id="kpiStable">—</span>
+          <span class="kpi-label">Versões estáveis</span>
+          <!-- Dois produtos com ciclos independentes: um número só aqui em cima
+               seria ambíguo - não dá pra saber de quem é. -->
+          <div class="kpi-versoes">
+            <div class="kpi-versao"><span>Revit</span><b id="kpiStable-revit-plugin">—</b></div>
+            <div class="kpi-versao"><span>Solutions</span><b id="kpiStable-solutions">—</b></div>
+          </div>
           <span class="kpi-hint" id="kpiCanary">—</span>
         </div>
         <div class="kpi">
@@ -862,25 +879,39 @@
     // Produtos que publicam versao. O slug tem de bater com o backend
     // (ReleaseManifest.ProdutoPlugin / ProdutoSolutions).
     const PRODUTOS = [
-      { slug: 'revit-plugin', nome: 'Plugin Revit' },
-      { slug: 'solutions',    nome: 'Filippon Solutions' },
+      { slug: 'revit-plugin', nome: 'Plugin Revit', curto: 'Revit' },
+      { slug: 'solutions',    nome: 'Filippon Solutions', curto: 'Solutions' },
     ];
 
     async function loadRelease() {
+      const pendentes = [];
+
       for (const p of PRODUTOS) {
         try {
           const res = await apiFetch('/v1/admin/release?product=' + encodeURIComponent(p.slug));
           if (!res.ok) continue;
           const r = await res.json();   // { stable, canary }
-          $('relStable-' + p.slug).textContent = fmtChannel(r.stable);
-          $('relCanary-' + p.slug).textContent = fmtChannel(r.canary);
-          // O KPI do topo acompanha o plugin, que e o produto com frota instalada.
-          if (p.slug === 'revit-plugin') {
-            $('kpiStable').textContent = fmtChannel(r.stable);
-            $('kpiCanary').textContent = 'canario ' + fmtChannel(r.canary);
+
+          const estavel = fmtChannel(r.stable);
+          const canario = fmtChannel(r.canary);
+
+          $('relStable-' + p.slug).textContent = estavel;
+          $('relCanary-' + p.slug).textContent = canario;
+          $('kpiStable-' + p.slug).textContent = estavel;
+
+          // Canario diferente do estavel = versao testada esperando ser
+          // liberada. E a unica informacao acionavel deste card; repetir os
+          // numeros que ja estao logo acima nao ajudaria ninguem.
+          const v = (r.canary && r.canary.latest) || '';
+          if (v && v !== '0.0.0' && v !== ((r.stable && r.stable.latest) || '')) {
+            pendentes.push(p.curto + ' ' + v);
           }
         } catch {}
       }
+
+      $('kpiCanary').textContent = pendentes.length
+        ? 'canario aguardando: ' + pendentes.join(', ')
+        : 'nenhum canario pendente';
     }
 
     // Com dois produtos na tela, a confirmacao PRECISA dizer qual. Sem o nome,
