@@ -154,8 +154,12 @@ public sealed class AppDbContext : DbContext, IUnitOfWork
         {
             e.ToTable("release_manifests");
             e.HasKey(x => x.Id);
+            // defaultValue: as linhas que já existem (todas do plugin) nascem
+            // com o produto certo, sem precisar de UPDATE na migração.
+            e.Property(x => x.Product).HasMaxLength(40).IsRequired().HasDefaultValue("revit-plugin");
             e.Property(x => x.Channel).HasMaxLength(20).IsRequired().HasDefaultValue("stable");
-            e.HasIndex(x => x.Channel);
+            // A consulta do /version é sempre por produto + canal.
+            e.HasIndex(x => new { x.Product, x.Channel });
             e.Property(x => x.Version).HasMaxLength(40).IsRequired();
             e.Property(x => x.Url).HasMaxLength(1000);
             e.Property(x => x.Notes).HasMaxLength(4000);

@@ -131,6 +131,14 @@
     .kpi-hint { display:block; font-size:12px; color:var(--muted); margin-top:2px;
                 overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
+    /* ===== Blocos de produto (card de versão) ===== */
+    .prod-bloco { margin-bottom:18px; }
+    .prod-bloco:last-of-type { margin-bottom:4px; }
+    .prod-titulo {
+      font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
+      color:var(--muted); margin-bottom:8px;
+    }
+
     /* ===== Cards ===== */
     .card {
       background:var(--surface); border:1px solid var(--line); border-radius:var(--radius);
@@ -467,17 +475,39 @@
           </div>
         </div>
         <div class="card-body">
-          <div class="rel-grid">
-            <div class="rel">
-              <div class="rel-head"><span class="rel-label">Estável · todas as máquinas</span></div>
-              <div class="rel-value" id="relStable">—</div>
-            </div>
-            <div class="rel rel-canary">
-              <div class="rel-head">
-                <span class="rel-label">Canário · teste</span>
-                <button id="promoteBtn" class="btn btn-ok btn-sm">Promover →</button>
+          <!-- Um bloco por produto. Os ciclos de versão são independentes:
+               publicar ou promover um nunca toca no outro. -->
+          <div class="prod-bloco">
+            <div class="prod-titulo">Plugin Revit</div>
+            <div class="rel-grid">
+              <div class="rel">
+                <div class="rel-head"><span class="rel-label">Estável · todas as máquinas</span></div>
+                <div class="rel-value" id="relStable-revit-plugin">—</div>
               </div>
-              <div class="rel-value" id="relCanary">—</div>
+              <div class="rel rel-canary">
+                <div class="rel-head">
+                  <span class="rel-label">Canário · teste</span>
+                  <button class="btn btn-ok btn-sm" data-promover="revit-plugin">Promover →</button>
+                </div>
+                <div class="rel-value" id="relCanary-revit-plugin">—</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="prod-bloco">
+            <div class="prod-titulo">Filippon Solutions</div>
+            <div class="rel-grid">
+              <div class="rel">
+                <div class="rel-head"><span class="rel-label">Estável · todas as máquinas</span></div>
+                <div class="rel-value" id="relStable-solutions">—</div>
+              </div>
+              <div class="rel rel-canary">
+                <div class="rel-head">
+                  <span class="rel-label">Canário · teste</span>
+                  <button class="btn btn-ok btn-sm" data-promover="solutions">Promover →</button>
+                </div>
+                <div class="rel-value" id="relCanary-solutions">—</div>
+              </div>
             </div>
           </div>
 
@@ -505,6 +535,10 @@
               <div class="adv-foot">
                 <label class="chk"><input type="checkbox" id="relMandatory" /> Atualização obrigatória</label>
                 <div class="card-tools">
+                  <select id="relProduct" class="input input-sm" style="width:auto">
+                    <option value="revit-plugin">Plugin Revit</option>
+                    <option value="solutions">Filippon Solutions</option>
+                  </select>
                   <select id="relChannel" class="input input-sm" style="width:auto">
                     <option value="canary">canário</option>
                     <option value="stable">estável</option>
@@ -825,27 +859,54 @@
         : '— nenhuma —';
     }
 
+    // Produtos que publicam versao. O slug tem de bater com o backend
+    // (ReleaseManifest.ProdutoPlugin / ProdutoSolutions).
+    const PRODUTOS = [
+      { slug: 'revit-plugin', nome: 'Plugin Revit' },
+      { slug: 'solutions',    nome: 'Filippon Solutions' },
+    ];
+
     async function loadRelease() {
-      try {
-        const res = await apiFetch('/v1/admin/release');
-        if (!res.ok) return;
-        const r = await res.json();   // { stable, canary }
-        $('relStable').textContent = fmtChannel(r.stable);
-        $('relCanary').textContent = fmtChannel(r.canary);
-        $('kpiStable').textContent = fmtChannel(r.stable);
-        $('kpiCanary').textContent = 'canário ' + fmtChannel(r.canary);
-      } catch {}
+      for (const p of PRODUTOS) {
+        try {
+          const res = await apiFetch('/v1/admin/release?product=' + encodeURIComponent(p.slug));
+          if (!res.ok) continue;
+          const r = await res.json();   // { stable, canary }
+          $('relStable-' + p.slug).textContent = fmtChannel(r.stable);
+          $('relCanary-' + p.slug).textContent = fmtChannel(r.canary);
+          // O KPI do topo acompanha o plugin, que e o produto com frota instalada.
+          if (p.slug === 'revit-plugin') {
+            $('kpiStable').textContent = fmtChannel(r.stable);
+            $('kpiCanary').textContent = 'canario ' + fmtChannel(r.canary);
+          }
+        } catch {}
+      }
     }
 
-    async function promoteRelease() {
-      if (!confirm('Promover a versão do CANÁRIO para ESTÁVEL?\n\nIsso libera a atualização para TODAS as máquinas. Confirme só depois de testar no canário.')) return;
-      const res = await apiFetch('/v1/admin/release/promote', { method:'POST' });
-      if (res.ok) { msg('relMsg', '✓ Promovido para estável — todas as máquinas serão atualizadas no próximo boot.', 'ok'); loadRelease(); }
+    // Com dois produtos na tela, a confirmacao PRECISA dizer qual. Sem o nome,
+    // sao duas caixas identicas para acoes diferentes - e o clique errado
+    // libera a versao errada para a frota inteira.
+    async function promoteRelease(slug) {
+      const prod = PRODUTOS.find(p => p.slug === slug);
+      const nome = prod ? prod.nome : slug;
+      const aviso = [
+        'Promover o CANARIO de ' + nome + ' para ESTAVEL?',
+        '',
+        'Isso libera a atualizacao para TODAS as maquinas com ' + nome + '.',
+        'O outro produto nao e afetado.',
+        'Confirme so depois de testar no canario.',
+      ].join(String.fromCharCode(10));
+      if (!confirm(aviso)) return;
+      const res = await apiFetch('/v1/admin/release/promote?product=' + encodeURIComponent(slug), { method:'POST' });
+      if (res.ok) { msg('relMsg', nome + ' promovido para estavel - as maquinas atualizam no proximo boot.', 'ok'); loadRelease(); }
       else { let m = 'Falha ao promover.'; try { m = (await res.json()).error || m; } catch {} msg('relMsg', m, 'err'); }
     }
 
     async function saveRelease() {
       const ch = $('relChannel').value;
+      // Produto explicito: o backend tem default 'revit-plugin', e confiar nele
+      // aqui faria uma publicacao do Solutions cair em cima da do plugin.
+      const prod = $('relProduct').value;
       const body = {
         version: $('relVersion').value.trim(),
         url: $('relUrl').value.trim(),
@@ -855,8 +916,8 @@
       };
       if (!body.version) { msg('relMsg', 'Informe a versão (ex.: 1.8.0).', 'err'); return; }
       msg('relMsg', 'Publicando...');
-      const res = await apiFetch('/v1/admin/release?channel=' + encodeURIComponent(ch), { method:'PUT', body: JSON.stringify(body) });
-      if (res.ok) { msg('relMsg', '✓ Publicado no canal ' + ch + '.', 'ok'); loadRelease(); }
+      const res = await apiFetch('/v1/admin/release?product=' + encodeURIComponent(prod) + '&channel=' + encodeURIComponent(ch), { method:'PUT', body: JSON.stringify(body) });
+      if (res.ok) { msg('relMsg', '✓ Publicado: ' + prod + ' / ' + ch + '.', 'ok'); loadRelease(); }
       else { let m = 'Falha ao publicar.'; try { m = (await res.json()).error || m; } catch {} msg('relMsg', m, 'err'); }
     }
 
@@ -1015,7 +1076,11 @@
     $('createBtn').onclick = createUser;
     $('refreshBtn').onclick = loadUsers;
     $('relSaveBtn').onclick = saveRelease;
-    $('promoteBtn').onclick = promoteRelease;
+    // Um handler para os dois botoes: o produto vem do data-promover, entao
+    // acrescentar um produto novo e so acrescentar o bloco no HTML.
+    document.querySelectorAll('[data-promover]').forEach(function (b) {
+      b.onclick = function () { promoteRelease(b.getAttribute('data-promover')); };
+    });
     $('usersBody').addEventListener('click', e => {
       const b = e.target.closest('button[data-act]');
       if (!b) return;

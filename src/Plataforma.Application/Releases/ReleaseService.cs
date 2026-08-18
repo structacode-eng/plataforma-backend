@@ -35,17 +35,28 @@ public sealed class ReleaseService
         => r is null ? Empty : new ReleaseManifestDto(r.Version, r.Url, r.Notes, r.Mandatory, r.Sha256, r.UpdatedAtUtc);
 
     /// <summary>Manifesto de um canal (GET /version). Default: estável. 0.0.0 se vazio.</summary>
-    public async Task<ReleaseManifestDto> GetManifestAsync(string? channel = null, CancellationToken ct = default)
-        => ToDto(await _releases.GetCurrentAsync(ReleaseManifest.NormalizeChannel(channel), ct));
+    /// <summary>
+    /// Manifesto de um produto num canal. `product` nulo cai no plugin do Revit
+    /// - é o que mantém a frota já instalada recebendo o que sempre recebeu,
+    /// já que o UpdateService em campo não manda cabeçalho de produto.
+    /// </summary>
+    public async Task<ReleaseManifestDto> GetManifestAsync(string? product = null, string? channel = null, CancellationToken ct = default)
+        => ToDto(await _releases.GetCurrentAsync(
+            ReleaseManifest.NormalizeProduct(product),
+            ReleaseManifest.NormalizeChannel(channel), ct));
 
     /// <summary>Os dois canais de uma vez (para o painel).</summary>
-    public async Task<ReleasesDto> GetBothAsync(CancellationToken ct = default)
-        => new ReleasesDto(
-            ToDto(await _releases.GetCurrentAsync(ReleaseManifest.Stable, ct)),
-            ToDto(await _releases.GetCurrentAsync(ReleaseManifest.Canary, ct)));
+    /// <summary>Os dois canais de UM produto, para o painel montar o card.</summary>
+    public async Task<ReleasesDto> GetBothAsync(string? product = null, CancellationToken ct = default)
+    {
+        var p = ReleaseManifest.NormalizeProduct(product);
+        return new ReleasesDto(
+            ToDto(await _releases.GetCurrentAsync(p, ReleaseManifest.Stable, ct)),
+            ToDto(await _releases.GetCurrentAsync(p, ReleaseManifest.Canary, ct)));
+    }
 
     /// <summary>Publica em um canal (default: estável). Valida versão, URL e sha256.</summary>
-    public async Task<Result<ReleaseManifestDto>> SetManifestAsync(SetReleaseRequest req, string? channel = null, CancellationToken ct = default)
+    public async Task<Result<ReleaseManifestDto>> SetManifestAsync(SetReleaseRequest req, string? product = null, string? channel = null, CancellationToken ct = default)
     {
         if (req is null || string.IsNullOrWhiteSpace(req.Version))
             return Result<ReleaseManifestDto>.Fail("Versão é obrigatória (ex.: 1.8.0).", "invalid_version");
@@ -56,19 +67,22 @@ public sealed class ReleaseService
         if (!string.IsNullOrWhiteSpace(req.Sha256) && !IsSha256(req.Sha256))
             return Result<ReleaseManifestDto>.Fail("SHA-256 inválido (64 caracteres hexadecimais).", "invalid_sha256");
 
-        var m = new ReleaseManifest(ReleaseManifest.NormalizeChannel(channel), req.Version, req.Url, req.Notes, req.Sha256, req.Mandatory);
+        var m = new ReleaseManifest(ReleaseManifest.NormalizeProduct(product), ReleaseManifest.NormalizeChannel(channel), req.Version, req.Url, req.Notes, req.Sha256, req.Mandatory);
         await _releases.AddAsync(m, ct);
         await _uow.SaveChangesAsync(ct);
         return Result<ReleaseManifestDto>.Ok(ToDto(m));
     }
 
     /// <summary>Promove a versão corrente do canário para o estável (libera para TODAS as máquinas).</summary>
-    public async Task<Result<ReleaseManifestDto>> PromoteAsync(CancellationToken ct = default)
+    /// <summary>Promove o canário de UM produto para estável. A promoção nunca
+    /// atravessa produtos: promover o Solutions não toca no plugin.</summary>
+    public async Task<Result<ReleaseManifestDto>> PromoteAsync(string? product = null, CancellationToken ct = default)
     {
-        var c = await _releases.GetCurrentAsync(ReleaseManifest.Canary, ct);
+        var p = ReleaseManifest.NormalizeProduct(product);
+        var c = await _releases.GetCurrentAsync(p, ReleaseManifest.Canary, ct);
         if (c is null || c.Version == "0.0.0")
             return Result<ReleaseManifestDto>.Fail("Nada publicado no canário para promover.", "empty_canary");
-        var m = new ReleaseManifest(ReleaseManifest.Stable, c.Version, c.Url, c.Notes, c.Sha256, c.Mandatory);
+        var m = new ReleaseManifest(p, ReleaseManifest.Stable, c.Version, c.Url, c.Notes, c.Sha256, c.Mandatory);
         await _releases.AddAsync(m, ct);
         await _uow.SaveChangesAsync(ct);
         return Result<ReleaseManifestDto>.Ok(ToDto(m));

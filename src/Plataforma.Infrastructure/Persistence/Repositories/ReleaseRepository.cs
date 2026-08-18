@@ -10,8 +10,8 @@ public sealed class ReleaseRepository : IReleaseRepository
     public ReleaseRepository(AppDbContext db) => _db = db;
 
     // Guardamos uma linha por publicação; a mais recente de cada canal é a corrente.
-    public Task<ReleaseManifest?> GetCurrentAsync(string channel, CancellationToken ct = default)
-        => _db.ReleaseManifests.Where(r => r.Channel == channel)
+    public Task<ReleaseManifest?> GetCurrentAsync(string product, string channel, CancellationToken ct = default)
+        => _db.ReleaseManifests.Where(r => r.Product == product && r.Channel == channel)
               .OrderByDescending(r => r.UpdatedAtUtc).FirstOrDefaultAsync(ct);
 
     public async Task AddAsync(ReleaseManifest manifest, CancellationToken ct = default)

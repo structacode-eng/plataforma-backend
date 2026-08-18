@@ -33,6 +33,10 @@ public sealed class CiController : ControllerBase
     public async Task<IActionResult> PublishCanary(
         [FromBody] SetReleaseRequest req,
         [FromHeader(Name = "X-Ci-Token")] string? token,
+        // Qual produto está publicando. O workflow do plugin não manda este
+        // parâmetro e continua caindo em "revit-plugin", que é o que ele sempre
+        // publicou - o pipeline em produção segue funcionando sem alteração.
+        [FromQuery] string? product,
         CancellationToken ct)
     {
         var expected = _config["Ci:PublishToken"];
@@ -41,7 +45,7 @@ public sealed class CiController : ControllerBase
                 Encoding.UTF8.GetBytes(token), Encoding.UTF8.GetBytes(expected)))
             return Unauthorized(new { error = "Token de CI inválido.", code = "invalid_ci_token" });
 
-        var r = await _releases.SetManifestAsync(req, ReleaseManifest.Canary, ct);
+        var r = await _releases.SetManifestAsync(req, product, ReleaseManifest.Canary, ct);
         if (r.Success) return Ok(r.Value);
         return StatusCode(StatusCodes.Status400BadRequest, new { error = r.Error, code = r.Code });
     }

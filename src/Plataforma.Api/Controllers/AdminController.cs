@@ -113,21 +113,24 @@ public sealed class AdminController : ControllerBase
         => Respond(await _svc.DeleteUserAsync(email, ct));
 
     // ----- Updater (Marco 5): manifesto de versão publicada -----
+    // O `product` é explícito em todos os três, e não herdado de um default: o
+    // painel tem um card por produto, e publicar o Solutions sem informar qual
+    // é cairia em cima do manifesto do plugin do Revit.
     [HttpGet("release")]
     [Authorize(Roles = "Owner")]
-    public async Task<IActionResult> GetRelease(CancellationToken ct)
-        => Ok(await _releases.GetBothAsync(ct));
+    public async Task<IActionResult> GetRelease([FromQuery] string? product, CancellationToken ct)
+        => Ok(await _releases.GetBothAsync(product, ct));
 
     [HttpPut("release")]
     [Authorize(Roles = "Owner")]
-    public async Task<IActionResult> SetRelease([FromBody] SetReleaseRequest req, [FromQuery] string? channel, CancellationToken ct)
-        => Respond(await _releases.SetManifestAsync(req, channel, ct));
+    public async Task<IActionResult> SetRelease([FromBody] SetReleaseRequest req, [FromQuery] string? product, [FromQuery] string? channel, CancellationToken ct)
+        => Respond(await _releases.SetManifestAsync(req, product, channel, ct));
 
     // Promove a versão do canário para o estável (libera para TODAS as máquinas). Owner apenas.
     [HttpPost("release/promote")]
     [Authorize(Roles = "Owner")]
-    public async Task<IActionResult> PromoteRelease(CancellationToken ct)
-        => Respond(await _releases.PromoteAsync(ct));
+    public async Task<IActionResult> PromoteRelease([FromQuery] string? product, CancellationToken ct)
+        => Respond(await _releases.PromoteAsync(product, ct));
 
     private IActionResult Respond<T>(Result<T> r, int successCode = StatusCodes.Status200OK)
     {

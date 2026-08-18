@@ -15,10 +15,17 @@ public sealed class VersionController : ControllerBase
     private readonly ReleaseService _svc;
     public VersionController(ReleaseService svc) => _svc = svc;
 
+    /// <summary>Cabeçalho que identifica o produto chamador. Mesmo usado no login.</summary>
+    public const string HeaderProduto = "X-Filippon-Product";
+
     [HttpGet("/version")]
     public async Task<IActionResult> Version([FromQuery] string? channel, CancellationToken ct)
     {
-        var m = await _svc.GetManifestAsync(channel, ct);
+        // SEM cabeçalho o manifesto é o do plugin do Revit. É isto que mantém a
+        // frota já instalada intacta: o UpdateService em campo não manda o
+        // cabeçalho e continua recebendo exatamente o que sempre recebeu.
+        var produto = Request.Headers.TryGetValue(HeaderProduto, out var v) ? v.ToString() : null;
+        var m = await _svc.GetManifestAsync(produto, channel, ct);
         return Ok(new VersionResponse
         {
             Latest = m.Latest,
