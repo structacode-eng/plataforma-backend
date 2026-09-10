@@ -1,4 +1,5 @@
 using Plataforma.Application.Abstractions;
+using Plataforma.Application.Common;
 
 namespace Plataforma.Application.Telemetry;
 
@@ -31,11 +32,21 @@ public sealed class UsoRelatorioDto
     public IReadOnlyList<UsoPessoaDto> PorPessoa { get; init; } = Array.Empty<UsoPessoaDto>();
 }
 
+/// <summary>Intervalo já validado, inclusivo nas duas pontas.</summary>
+public readonly record struct PeriodoUso(DateOnly De, DateOnly Ate)
+{
+    public int Dias => Ate.DayNumber - De.DayNumber + 1;
+}
+
 /// <summary>Monta o relatório de uso do painel admin.</summary>
 public sealed class UsageQueryService
 {
     public const int MaxDias = 365;
     public const int DiasPadrao = 30;
+
+    /// <summary>Quão longe no passado o início do período pode ir. Como o fim
+    /// nunca passa de hoje, este limite também é o tamanho máximo da consulta.</summary>
+    public const int MaxRetroativoMeses = 12;
 
     private readonly IUsageRepository _uso;
     private readonly IUserRepository _users;
@@ -46,13 +57,53 @@ public sealed class UsageQueryService
         _users = users;
     }
 
-    public async Task<UsoRelatorioDto> RelatorioAsync(int dias, string? produto, CancellationToken ct = default)
+    /// <summary>
+    /// Traduz o que veio da query string num intervalo utilizável. Com
+    /// <paramref name="de"/> e <paramref name="ate"/> preenchidos vale o intervalo;
+    /// senão, cai no modo antigo de "últimos N dias" terminando hoje.
+    /// </summary>
+    public static Result<PeriodoUso> ResolverPeriodo(DateOnly? de, DateOnly? ate, int dias)
     {
-        if (dias <= 0) dias = DiasPadrao;
-        if (dias > MaxDias) dias = MaxDias;
+        var hoje = DateOnly.FromDateTime(DateTime.UtcNow);
 
-        var ate = DateOnly.FromDateTime(DateTime.UtcNow);
-        var de = ate.AddDays(-(dias - 1));   // inclusivo nas duas pontas
+        if (de is null || ate is null)
+        {
+            if (dias <= 0) dias = DiasPadrao;
+            if (dias > MaxDias) dias = MaxDias;
+            return Result<PeriodoUso>.Ok(new PeriodoUso(hoje.AddDays(-(dias - 1)), hoje));
+        }
+
+        var inicio = de.Value;
+        var fim = ate.Value;
+
+        // Datas trocadas é engano de digitação, não erro: arruma em silêncio.
+        if (inicio > fim) (inicio, fim) = (fim, inicio);
+
+        // O mês corrente termina no futuro. Em vez de recusar, corta em hoje —
+        // e o DTO devolve as datas efetivas, então a tela mostra o que foi usado.
+        if (fim > hoje) fim = hoje;
+
+        if (inicio > fim)
+            return Result<PeriodoUso>.Fail("O período começa depois de hoje.", "periodo_invalido");
+
+        if (inicio < hoje.AddMonths(-MaxRetroativoMeses))
+            return Result<PeriodoUso>.Fail(
+                $"O histórico vai até {MaxRetroativoMeses} meses atrás.", "periodo_invalido");
+
+        return Result<PeriodoUso>.Ok(new PeriodoUso(inicio, fim));
+    }
+
+    public Task<UsoRelatorioDto> RelatorioAsync(int dias, string? produto, CancellationToken ct = default)
+    {
+        // O modo "últimos N dias" nunca falha na validação, então o Ok é seguro.
+        var periodo = ResolverPeriodo(null, null, dias).Value;
+        return RelatorioAsync(periodo, produto, ct);
+    }
+
+    public async Task<UsoRelatorioDto> RelatorioAsync(
+        PeriodoUso periodo, string? produto, CancellationToken ct = default)
+    {
+        var (de, ate) = (periodo.De, periodo.Ate);
 
         var ranking = await _uso.RankingAsync(de, ate, produto, ct);
         var porPessoa = await _uso.PorPessoaAsync(de, ate, produto, ct);
@@ -78,7 +129,7 @@ public sealed class UsageQueryService
         {
             De            = de.ToString("yyyy-MM-dd"),
             Ate           = ate.ToString("yyyy-MM-dd"),
-            Dias          = dias,
+            Dias          = periodo.Dias,
             Produto       = string.IsNullOrWhiteSpace(produto) ? null : produto,
             TotalGeral    = ranking.Sum(r => r.Total),
             PessoasAtivas = porPessoa.Select(p => p.UserId).Distinct().Count(),

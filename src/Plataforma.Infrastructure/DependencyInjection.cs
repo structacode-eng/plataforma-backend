@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Plataforma.Application.Abstractions;
 using Plataforma.Infrastructure.Persistence;
 using Plataforma.Infrastructure.Persistence.Repositories;
+using Plataforma.Infrastructure.Reporting;
 using Plataforma.Infrastructure.Security;
 
 namespace Plataforma.Infrastructure;
@@ -40,6 +41,9 @@ public static class DependencyInjection
         // Singleton: a chave de assinatura do lease é carregada uma vez e reutilizada (ver EcdsaLeaseService).
         services.AddSingleton<ILeaseService, EcdsaLeaseService>();
         services.Configure<LeaseOptions>(config.GetSection("Lease"));
+
+        // Relatório de uso em PDF. Sem estado, então uma instância serve a todos.
+        services.AddSingleton<IUsageReportPdf, UsageReportPdf>();
 
         return services;
     }

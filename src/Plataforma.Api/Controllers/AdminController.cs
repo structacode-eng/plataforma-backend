@@ -1,5 +1,6 @@
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Plataforma.Application.Abstractions;
 using Plataforma.Application.Common;
 using Plataforma.Application.Licensing;
 using Plataforma.Application.Releases;
@@ -20,22 +21,57 @@ public sealed class AdminController : ControllerBase
     private readonly AdminCatalogService _svc;
     private readonly ReleaseService _releases;
     private readonly UsageQueryService _uso;
-    public AdminController(AdminCatalogService svc, ReleaseService releases, UsageQueryService uso)
+    private readonly IUsageReportPdf _pdf;
+    public AdminController(
+        AdminCatalogService svc, ReleaseService releases, UsageQueryService uso, IUsageReportPdf pdf)
     {
         _svc = svc;
         _releases = releases;
         _uso = uso;
+        _pdf = pdf;
     }
 
     /// <summary>
-    /// Uso das ferramentas no período (padrão: 30 dias). Owner apenas — mostra
-    /// o que cada pessoa, nominalmente, abriu.
+    /// Uso das ferramentas no período. Owner apenas — mostra o que cada pessoa,
+    /// nominalmente, abriu.
+    ///
+    /// Dois modos: <c>de</c>+<c>ate</c> (ISO, intervalo fechado) para consultar
+    /// meses passados, ou <c>dias</c> para a janela que termina hoje. Sem
+    /// nenhum dos dois, 30 dias.
     /// </summary>
     [HttpGet("usage")]
     [Authorize(Roles = "Owner")]
     public async Task<IActionResult> Usage(
-        [FromQuery] int dias, [FromQuery] string? produto, CancellationToken ct)
-        => Ok(await _uso.RelatorioAsync(dias, produto, ct));
+        [FromQuery] int dias, [FromQuery] string? produto,
+        [FromQuery] DateOnly? de, [FromQuery] DateOnly? ate, CancellationToken ct)
+    {
+        var periodo = UsageQueryService.ResolverPeriodo(de, ate, dias);
+        if (!periodo.Success) return Respond(Falha<UsoRelatorioDto>(periodo));
+
+        return Ok(await _uso.RelatorioAsync(periodo.Value, produto, ct));
+    }
+
+    /// <summary>
+    /// O mesmo relatório, em PDF, para arquivar o período. Mesmos parâmetros e
+    /// mesma restrição a Owner do endpoint acima.
+    /// </summary>
+    [HttpGet("usage/pdf")]
+    [Authorize(Roles = "Owner")]
+    public async Task<IActionResult> UsagePdf(
+        [FromQuery] int dias, [FromQuery] string? produto,
+        [FromQuery] DateOnly? de, [FromQuery] DateOnly? ate, CancellationToken ct)
+    {
+        var periodo = UsageQueryService.ResolverPeriodo(de, ate, dias);
+        if (!periodo.Success) return Respond(Falha<UsoRelatorioDto>(periodo));
+
+        var relatorio = await _uso.RelatorioAsync(periodo.Value, produto, ct);
+        return File(_pdf.Gerar(relatorio), "application/pdf",
+            $"uso-{relatorio.De}-a-{relatorio.Ate}.pdf");
+    }
+
+    /// <summary>Repassa o erro de um Result para outro tipo, preservando o Code.</summary>
+    private static Result<T> Falha<T>(Result<PeriodoUso> origem)
+        => Result<T>.Fail(origem.Error!, origem.Code!);
 
     [HttpPost("plugins")]
     [Authorize(Roles = "Owner")]

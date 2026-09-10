@@ -630,6 +630,53 @@
           <div id="pessoasMsg" class="msg"></div>
         </div>
       </section>
+      <!-- Histórico de uso -->
+      <section class="card">
+        <div class="card-head">
+          <div>
+            <h2 class="card-h">
+              <button type="button" class="card-toggle" aria-expanded="true" aria-controls="bodyHistorico">
+                <svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+                <span>Histórico de uso</span>
+                <span class="card-count" id="histCount"></span>
+              </button>
+            </h2>
+            <p class="card-sub">Mês fechado não se perde: o registro continua guardado e consultável aqui, até 12 meses atrás. O PDF congela o período num documento.</p>
+          </div>
+          <div class="card-tools">
+            <select id="histModo" class="input input-sm" style="width:auto" aria-label="Tipo de período">
+              <option value="mes" selected>mês</option>
+              <option value="semana">semana</option>
+              <option value="custom">personalizado</option>
+            </select>
+            <input type="month" id="histMes" class="input input-sm" style="width:auto" aria-label="Mês">
+            <input type="date" id="histSemana" class="input input-sm" style="width:auto" aria-label="Semana que contém esta data" hidden>
+            <input type="date" id="histDe" class="input input-sm" style="width:auto" aria-label="Data inicial" hidden>
+            <input type="date" id="histAte" class="input input-sm" style="width:auto" aria-label="Data final" hidden>
+            <button id="histBtn" class="btn btn-ghost btn-sm">Ver</button>
+            <button id="histPdfBtn" class="btn btn-primary btn-sm">Baixar PDF</button>
+          </div>
+        </div>
+        <div class="card-body" id="bodyHistorico">
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr><th>Ferramenta</th><th class="right">Aberturas</th><th class="right">Pessoas</th></tr>
+              </thead>
+              <tbody id="histBody"></tbody>
+            </table>
+          </div>
+          <div class="table-scroll" style="margin-top:16px">
+            <table>
+              <thead>
+                <tr><th>Pessoa</th><th class="right">Ferramentas</th><th class="right">Aberturas</th><th>Último uso</th></tr>
+              </thead>
+              <tbody id="histPessoasBody"></tbody>
+            </table>
+          </div>
+          <div id="histMsg" class="msg"></div>
+        </div>
+      </section>
     </main>
   </div>
 
@@ -1099,6 +1146,172 @@
     }
     ligaExpansao('usageBody', 'det-');
     ligaExpansao('pessoasBody', 'pes-');
+
+    // ===== Histórico de uso =====
+    // Bloco autocontido, de propósito: as seções acima continuam com as
+    // funções que sempre tiveram. O uso nunca foi apagado do banco — o que
+    // faltava era poder pedir um intervalo em vez de "últimos N dias".
+    let histPorComando = {};
+
+    const iso = (d) => d.toISOString().slice(0, 10);
+
+    // Segunda a domingo da semana que contém a data escolhida. É um campo de
+    // data comum, e não <input type="week">, que o Firefox não implementa.
+    function semanaDe(dataIso) {
+      const d = new Date(dataIso + 'T00:00:00Z');
+      const desdeSegunda = (d.getUTCDay() + 6) % 7;
+      const seg = new Date(d); seg.setUTCDate(d.getUTCDate() - desdeSegunda);
+      const dom = new Date(seg); dom.setUTCDate(seg.getUTCDate() + 6);
+      return [iso(seg), iso(dom)];
+    }
+
+    function periodoHist() {
+      const modo = $('histModo').value;
+      if (modo === 'mes') {
+        const v = $('histMes').value;
+        if (!v) return null;
+        const [ano, mes] = v.split('-').map(Number);
+        // Dia 0 do mês seguinte é o último dia do mês pedido.
+        return [iso(new Date(Date.UTC(ano, mes - 1, 1))), iso(new Date(Date.UTC(ano, mes, 0)))];
+      }
+      if (modo === 'semana') {
+        return $('histSemana').value ? semanaDe($('histSemana').value) : null;
+      }
+      const de = $('histDe').value, ate = $('histAte').value;
+      return (de && ate) ? [de, ate] : null;
+    }
+
+    function trocaModoHist() {
+      const modo = $('histModo').value;
+      $('histMes').hidden = modo !== 'mes';
+      $('histSemana').hidden = modo !== 'semana';
+      $('histDe').hidden = modo !== 'custom';
+      $('histAte').hidden = modo !== 'custom';
+    }
+
+    function detalheHistPessoas(comando) {
+      const lista = (histPorComando[comando] || []).slice().sort((a, b) => b.total - a.total);
+      if (!lista.length) return '<span class="muted">Sem detalhe por pessoa.</span>';
+      return lista.map(p =>
+        `<div class="usage-pessoa">` +
+          `<span>${esc(p.email)}</span>` +
+          `<span class="muted num">${p.total} · último uso ${diaBR(p.ultimoDia)}</span>` +
+        `</div>`
+      ).join('');
+    }
+
+    function renderHistFerramentas(ferramentas) {
+      $('histCount').textContent = ferramentas.length ? '· ' + ferramentas.length + ' ferramentas' : '';
+      if (!ferramentas.length) {
+        $('histBody').innerHTML = '<tr><td colspan="3" class="empty">Nada aberto no período.</td></tr>';
+        return;
+      }
+      $('histBody').innerHTML = ferramentas.map((f, i) =>
+        `<tr class="usage-row" data-i="${i}">` +
+          `<td>${esc(nomeFerramenta(f.comando))}</td>` +
+          `<td class="right num">${f.total.toLocaleString('pt-BR')}</td>` +
+          `<td class="right num">${f.pessoas}</td>` +
+        `</tr>` +
+        `<tr class="usage-det" id="hdet-${i}" style="display:none"><td colspan="3">` +
+          `<div class="usage-det-in">` + detalheHistPessoas(f.comando) + `</div>` +
+        `</td></tr>`
+      ).join('');
+    }
+
+    function renderHistPessoas(porPessoa) {
+      const lista = agrupaPorPessoa(porPessoa);
+      if (!lista.length) {
+        $('histPessoasBody').innerHTML = '<tr><td colspan="4" class="empty">Ninguém abriu ferramenta no período.</td></tr>';
+        return;
+      }
+      $('histPessoasBody').innerHTML = lista.map((r, i) =>
+        `<tr class="usage-row" data-i="${i}">` +
+          `<td>${esc(r.email)}</td>` +
+          `<td class="right num">${r.ferramentas.length}</td>` +
+          `<td class="right num">${r.total.toLocaleString('pt-BR')}</td>` +
+          `<td>${diaBR(r.ultimoDia)}</td>` +
+        `</tr>` +
+        `<tr class="usage-det" id="hpes-${i}" style="display:none"><td colspan="4">` +
+          `<div class="usage-det-in">` + detalheFerramentas(r.ferramentas) + `</div>` +
+        `</td></tr>`
+      ).join('');
+    }
+
+    async function erroHist(res, padrao) {
+      const corpo = await res.json().catch(() => null);
+      return (corpo && corpo.error) || padrao;
+    }
+
+    async function loadHistorico() {
+      const p = periodoHist();
+      if (!p) { msg('histMsg', 'Escolha o período.', 'err'); return; }
+      msg('histMsg', 'Carregando…');
+      try {
+        const res = await apiFetch('/v1/admin/usage?de=' + p[0] + '&ate=' + p[1]);
+        if (!res.ok) { msg('histMsg', await erroHist(res, 'Falha ao carregar o período.'), 'err'); return; }
+        const d = await res.json();
+        histPorComando = {};
+        (d.porPessoa || []).forEach(x => {
+          (histPorComando[x.comando] = histPorComando[x.comando] || []).push(x);
+        });
+        renderHistFerramentas(d.ferramentas || []);
+        renderHistPessoas(d.porPessoa || []);
+        msg('histMsg', diaBR(d.de) + ' a ' + diaBR(d.ate) + ' · '
+          + d.totalGeral.toLocaleString('pt-BR') + ' abertura(s)');
+      } catch (e) { msg('histMsg', 'Sessão expirada — entre de novo.', 'err'); }
+    }
+
+    async function baixarPdfHist() {
+      const p = periodoHist();
+      if (!p) { msg('histMsg', 'Escolha o período.', 'err'); return; }
+      const btn = $('histPdfBtn');
+      btn.disabled = true;
+      msg('histMsg', 'Gerando PDF…');
+      try {
+        const res = await apiFetch('/v1/admin/usage/pdf?de=' + p[0] + '&ate=' + p[1]);
+        if (!res.ok) { msg('histMsg', await erroHist(res, 'Não foi possível gerar o PDF.'), 'err'); return; }
+        // O endpoint exige o cabeçalho Authorization, então um <a download>
+        // apontado para ele não serve: baixa-se o blob e entrega-se ao navegador.
+        const url = URL.createObjectURL(await res.blob());
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'uso-' + p[0] + '-a-' + p[1] + '.pdf';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        msg('histMsg', 'PDF baixado.', 'ok');
+      } catch (e) {
+        msg('histMsg', 'Sessão expirada — entre de novo.', 'err');
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    // Limites espelham a validação do servidor: 12 meses atrás, nada adiante de hoje.
+    (function preparaHistorico() {
+      const hoje = new Date();
+      const hojeIso = iso(hoje);
+      const limiteIso = iso(new Date(Date.UTC(
+        hoje.getUTCFullYear(), hoje.getUTCMonth() - 12, hoje.getUTCDate())));
+      ['histSemana', 'histDe', 'histAte'].forEach(id => {
+        $(id).min = limiteIso;
+        $(id).max = hojeIso;
+      });
+      $('histMes').min = limiteIso.slice(0, 7);
+      $('histMes').max = hojeIso.slice(0, 7);
+      // Abre no mês anterior: é o que sai da janela de 30 dias na virada do mês
+      // e o motivo de esta seção existir.
+      $('histMes').value = iso(new Date(Date.UTC(
+        hoje.getUTCFullYear(), hoje.getUTCMonth() - 1, 1))).slice(0, 7);
+      trocaModoHist();
+    })();
+
+    $('histModo').onchange = trocaModoHist;
+    $('histBtn').onclick = loadHistorico;
+    $('histPdfBtn').onclick = baixarPdfHist;
+    ligaExpansao('histBody', 'hdet-');
+    ligaExpansao('histPessoasBody', 'hpes-');
 
     $('loginBtn').onclick = login;
     $('loginEmail').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });

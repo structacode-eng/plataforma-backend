@@ -23,6 +23,14 @@ RUN dotnet publish src/Plataforma.Api/Plataforma.Api.csproj -c Release -o /app /
 # ---- Estágio 2: runtime (só o ASP.NET, imagem menor) ----
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
 WORKDIR /app
+
+# O relatório de uso em PDF (QuestPDF) desenha via SkiaSharp, que no Linux não
+# inicializa sem o fontconfig. A imagem do ASP.NET não o traz, e a falta dele só
+# aparece quando alguém clica em "Baixar PDF" — nunca no build.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libfontconfig1 \
+ && rm -rf /var/lib/apt/lists/*
+
 COPY --from=build /app ./
 
 # Produção: sem Swagger, carrega config de variáveis de ambiente.
