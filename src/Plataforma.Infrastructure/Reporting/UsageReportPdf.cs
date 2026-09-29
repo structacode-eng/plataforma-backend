@@ -18,12 +18,9 @@ public sealed class UsageReportPdf : IUsageReportPdf
 {
     private static readonly CultureInfo Br = new("pt-BR");
 
-    // Mesma transformação que o painel faz em nomeFerramenta(): o banco guarda
-    // slug ("cotas_furacao") e as duas telas mostram "Cotas Furacao".
-    private static string NomeFerramenta(string slug) =>
-        string.IsNullOrWhiteSpace(slug)
-            ? "—"
-            : Br.TextInfo.ToTitleCase(slug.Replace('_', ' '));
+    // O rótulo vem da tabela compartilhada, para o PDF dizer o mesmo nome que a
+    // pessoa lê no botão do Revit — e o mesmo que o painel mostra na tela.
+    private static string NomeFerramenta(string slug) => FerramentaNomes.Exibir(slug);
 
     private static string DataBr(string iso) =>
         DateOnly.TryParse(iso, CultureInfo.InvariantCulture, DateTimeStyles.None, out var d)

@@ -1008,8 +1008,78 @@
     // Slug -> rótulo legível. Sem tabela de tradução de propósito: a lista de
     // ferramentas muda a cada versão do plugin, e um mapa aqui ficaria velho
     // exatamente na ferramenta nova que se quer olhar.
+    // Rótulo de cada ferramenta, igual ao botão na toolbar do Revit. A
+    // telemetria manda o slug da classe do comando (ajustar_elevacao), que não
+    // é o que a pessoa lê no Revit — sem esta tabela o relatório mostrava
+    // "Pro Sheets" para o botão "Exportar Arquivo" e "About" para "Filippon".
+    //
+    // Origem: RibbonBuilder.cs no repositório do plugin. Tem uma gêmea em
+    // FerramentaNomes.cs, que serve o PDF; mexeu numa, mexa na outra.
+    //
+    // Rótulo repetido entre disciplinas leva a disciplina entre parênteses,
+    // senão o relatório traz duas linhas com o mesmo nome.
+    const NOMES_FERRAMENTA = {
+      about:                       'Filippon',
+      ajustar_elevacao:            'Ajustar Elevação',
+      ajuste_altura:               'Ajustar Altura',
+      alinhar_grelha_nivel:        'Caixas S. Ralos',
+      alinhar_ramal3d:             'Alinhar Ramal',
+      auditar_bim:                 'Audita BIM',
+      auto_ramal:                  'Auto Ramal',
+      buscar_comando:              'Buscar Comando',
+      colorir_abas:                'Colorir Abas',
+      colorir_eletroduto:          'Colorir Eletroduto',
+      colorir_filtros:             'Colorir Filtros',
+      comprimento_trecho:          'C. Trecho P. Carga',
+      config_corte:                'Config. Corte',
+      copiar_parametro:            'Rotina Pav. Elemento (Hidrossanitário)',
+      copiar_parametro_eletrico:   'Rotina Pav. Elemento (Elétrica)',
+      cotas_elt:                   'Cotas ELT',
+      criar_solicitacao:           'Criar Solicitação',
+      custo_sinapi:                'Custo SINAPI (Hidrossanitário)',
+      custo_sinapi_elt:            'Custo SINAPI (Elétrica)',
+      desconectar:                 'Desconectar Elementos',
+      desvio_calha_eletroduto:     'Desvio Calha e Eletroduto',
+      desvio_hidro:                'Desvio Hidráulico',
+      dimensionamento_cge:         'Dimensionar CGE',
+      excluir_system:              'Excluir Sistema',
+      explodir_vista:              'Explodir Vista',
+      exportar_tabelas:            'Exportar Tabelas',
+      family_browser:              'Buscador de Famílias',
+      flex_pipe:                   'Flex Pipe por Line',
+      gerar_vistas:                'Gerar Vistas',
+      gestor_de_clashes:           'Gestor de Clashes',
+      girar_encaixe:               'Girar Encaixe',
+      identificar_id:              'Identificar ID',
+      inverter_luvas:              'Inverter Luvas',
+      isometricos_ampliacoes:      'Criar Isométricos',
+      luvas_por_nivel:             'Luvas por Nivel',
+      magic_section:               'Corte Structa',
+      mover_conectar_alinhar:      'Mover, Alinhar e Conectar (Hidrossanitário)',
+      mover_conectar_alinhar_elt:  'Mover, Alinhar e Conectar (Elétrica)',
+      mudar_nivel:                 'Mudar Nível',
+      open_docs:                   'Docs',
+      open_instagram:              'Instagram',
+      open_site:                   'Site',
+      pro_sheets:                  'Exportar Arquivo',
+      quantitativo_eletrico:       'Rotina Quantitativo (Elétrica)',
+      quantitativo_geral:          'Gerar Quantitativo',
+      quantitativo_hidraulico:     'Rotina Quantitativo (Hidrossanitário)',
+      rotear_conduites:            'Rotear Conduítes',
+      rotina_unifilar:             'Rotina Unifilar',
+      selecoes:                    'Seleções',
+      simbolos_tomada:             'Símbolos de Tomadas',
+      tutoriais:                   'Tutoriais',
+      workset:                     'Rotina Workset',
+      zerar_slope:                 'Zerar Slope',
+    };
+
     function nomeFerramenta(slug) {
-      return slug.replace(/_/g, ' ').replace(/(^|\s)\S/g, c => c.toUpperCase());
+      if (!slug) return '—';
+      // Slug fora da tabela — comando removido do plugin, ou mais novo que
+      // esta lista — cai no formato antigo em vez de sumir do relatório.
+      return NOMES_FERRAMENTA[slug]
+        || slug.replace(/_/g, ' ').replace(/(^|\s)\S/g, c => c.toUpperCase());
     }
 
     // "2026-08-16" -> "16/08/2026". O servidor manda DateOnly em ISO; o resto do
