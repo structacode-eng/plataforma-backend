@@ -44,6 +44,22 @@ public sealed class FerramentaNomesTests
     public void Rotulo_repetido_ganha_a_disciplina(string slug, string esperado)
         => Assert.Equal(esperado, FerramentaNomes.Exibir(slug));
 
+    [Theory]
+    // As oito do Naviate LT no Conexões MEP (2.7.0). O slug vem do nome da
+    // classe, não do id do botão: AlinharEm3dCommand vira "alinhar_em3d" e
+    // CurvaParaBaixo45Command vira "curva_para_baixo45", embora o RibbonBuilder
+    // use "alinhar_em_3d" e "curva_para_baixo_45" como id.
+    [InlineData("brotar_trechos", "Brotar Trechos")]
+    [InlineData("curva_para_cima", "Curva para Cima")]
+    [InlineData("curva_para_baixo", "Curva para Baixo")]
+    [InlineData("curva_para_baixo45", "Curva 45° para Baixo")]
+    [InlineData("curva_para_esquerda", "Curva para a Esquerda")]
+    [InlineData("curva_para_direita", "Curva para a Direita")]
+    [InlineData("alinhar_em3d", "Alinhar em 3D")]
+    [InlineData("alinhar_ramal_mais", "Alinhar Ramal+")]
+    public void Ferramentas_do_conexoes_mep_usam_o_nome_do_botao(string slug, string esperado)
+        => Assert.Equal(esperado, FerramentaNomes.Exibir(slug));
+
     [Fact]
     public void Nenhum_rotulo_se_repete()
     {
@@ -81,9 +97,10 @@ public sealed class FerramentaNomesTests
     [Fact]
     public void A_tabela_cobre_a_toolbar_inteira()
     {
-        // A toolbar tinha 53 botões quando a tabela foi extraída. Se o plugin
-        // ganhar botões e ninguém atualizar aqui, eles caem no fallback e
-        // voltam a aparecer com o nome errado — este número é o lembrete.
-        Assert.Equal(53, FerramentaNomes.Total);
+        // A toolbar tinha 53 botões quando a tabela foi extraída; com as 8
+        // ferramentas do Naviate LT no Conexões MEP, 61. Se o plugin ganhar
+        // botões e ninguém atualizar aqui, eles caem no fallback e voltam a
+        // aparecer com o nome errado — este número é o lembrete.
+        Assert.Equal(61, FerramentaNomes.Total);
     }
 }
