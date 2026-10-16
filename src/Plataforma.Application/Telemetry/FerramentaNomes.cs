@@ -35,7 +35,7 @@ public static class FerramentaNomes
         ["alinhar_ramal_mais"]         = "Alinhar Ramal+",
         ["auditar_bim"]                = "Audita BIM",
         ["auto_ramal"]                 = "Auto Ramal",
-        ["brotar_trechos"]             = "Brotar Trechos",
+        ["brotar_trechos"]             = "Criar Tubos",   // Brotar Trechos até o plugin 2.7.0
         ["buscar_comando"]             = "Buscar Comando",
         ["colorir_abas"]               = "Colorir Abas",
         ["colorir_eletroduto"]         = "Colorir Eletroduto",

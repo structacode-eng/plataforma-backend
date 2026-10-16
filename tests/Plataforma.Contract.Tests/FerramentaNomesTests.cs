@@ -48,8 +48,9 @@ public sealed class FerramentaNomesTests
     // As oito do Naviate LT no Conexões MEP (2.7.0). O slug vem do nome da
     // classe, não do id do botão: AlinharEm3dCommand vira "alinhar_em3d" e
     // CurvaParaBaixo45Command vira "curva_para_baixo45", embora o RibbonBuilder
-    // use "alinhar_em_3d" e "curva_para_baixo_45" como id.
-    [InlineData("brotar_trechos", "Brotar Trechos")]
+    // use "alinhar_em_3d" e "curva_para_baixo_45" como id. O botão Brotar Trechos
+    // virou Criar Tubos no plugin 2.7.1, mas a classe (e o slug) ficaram iguais.
+    [InlineData("brotar_trechos", "Criar Tubos")]
     [InlineData("curva_para_cima", "Curva para Cima")]
     [InlineData("curva_para_baixo", "Curva para Baixo")]
     [InlineData("curva_para_baixo45", "Curva 45° para Baixo")]
