@@ -148,11 +148,15 @@ public sealed class UsageReportPdf : IUsageReportPdf
                 row.RelativeItem().Element(c => Kpi(c, "FERRAMENTAS USADAS", Num(r.Ferramentas.Count)));
             });
 
-            // Cada seção só começa se couberem o título e as primeiras linhas;
-            // senão, vai para a página seguinte (sem isto, o título podia ficar
-            // sozinho no pé da folha).
+            // A seção só começa se couberem o título e as primeiras linhas; senão,
+            // vai para a página seguinte (sem isto, o título podia ficar sozinho no
+            // pé da folha).
             col.Item().EnsureSpace(90).Element(c => UsoPorFerramenta(c, r.Ferramentas));
-            col.Item().EnsureSpace(90).Element(c => UsoPorPessoa(c, pessoas));
+
+            // "Uso por pessoa" sempre começa numa página nova (pedido de
+            // 19/10/2026): a parte de cada pessoa fica separada do resumo.
+            col.Item().PageBreak();
+            col.Item().Element(c => UsoPorPessoa(c, pessoas));
         });
     }
 
@@ -189,14 +193,15 @@ public sealed class UsageReportPdf : IUsageReportPdf
     }
 
     /// <summary>
-    /// Uma tabela só para todas as pessoas, agrupada: a pessoa aparece uma vez, na
-    /// primeira linha do grupo (com os totais dela logo abaixo, na mesma coluna), e
-    /// as ferramentas dela seguem linha a linha, da mais usada para a menos usada.
+    /// Uma tabela para cada pessoa, com espaço entre uma e outra (pedido de
+    /// 19/10/2026). O nome e os totais da pessoa ficam no cabeçalho da tabela dela,
+    /// junto dos títulos das colunas: se a lista passar para a página seguinte, o
+    /// cabeçalho se repete lá em cima e dá para saber de quem é.
     ///
-    /// <para>Substitui uma tabela por pessoa, cada uma com título e espaço próprios,
-    /// que deixava o documento comprido (8 páginas para 10 pessoas). A tabela pode
-    /// quebrar em qualquer linha, com o cabeçalho repetido, então ninguém precisa
-    /// caber numa página (a causa do 500 de 19/10/2026).</para>
+    /// <para>A tabela pode quebrar em qualquer linha, então ninguém precisa caber
+    /// numa página (exigir isso era a causa do 500 de 19/10/2026). Ela só começa se
+    /// couberem o cabeçalho e as primeiras linhas; senão, vai para a página
+    /// seguinte.</para>
     /// </summary>
     private static void UsoPorPessoa(IContainer container, IReadOnlyList<Pessoa> pessoas)
     {
@@ -204,45 +209,46 @@ public sealed class UsageReportPdf : IUsageReportPdf
         {
             bloco.Item().Text("Uso por pessoa").FontSize(12).SemiBold();
 
-            bloco.Item().PaddingTop(6).Table(tabela =>
+            bloco.Item().PaddingTop(10).Column(lista =>
             {
-                tabela.ColumnsDefinition(c =>
-                {
-                    c.RelativeColumn(4);
-                    c.RelativeColumn(5);
-                    c.ConstantColumn(56);
-                    c.ConstantColumn(62);
-                });
-
-                tabela.Header(h =>
-                {
-                    h.Cell().Element(Th).Text("Pessoa");
-                    h.Cell().Element(Th).Text("Ferramenta");
-                    h.Cell().Element(Th).AlignRight().Text("Aberturas");
-                    h.Cell().Element(Th).AlignRight().Text("Último uso");
-                });
-
+                lista.Spacing(24);   // o espaço entre uma pessoa e outra
                 foreach (var p in pessoas)
-                {
-                    for (int i = 0; i < p.Ferramentas.Count; i++)
-                    {
-                        var f = p.Ferramentas[i];
-                        bool inicio = i == 0;
-
-                        // Coluna da pessoa: nome na 1ª linha, totais nas seguintes,
-                        // e sem linha entre as células, para ler como um grupo.
-                        var pessoa = tabela.Cell().Element(c => CelulaPessoa(c, inicio));
-                        if (i == 0) pessoa.Text(p.Email).SemiBold();
-                        else if (i == 1) pessoa.Text($"{Num(p.Total)} abertura(s)").FontSize(8).FontColor("#6b7783");
-                        else if (i == 2) pessoa.Text($"{Num(p.Ferramentas.Count)} ferramenta(s)").FontSize(8).FontColor("#6b7783");
-                        else pessoa.Text("");
-
-                        tabela.Cell().Element(c => CelulaGrupo(c, inicio)).Text(NomeFerramenta(f.Comando));
-                        tabela.Cell().Element(c => CelulaGrupo(c, inicio)).AlignRight().Text(Num(f.Total));
-                        tabela.Cell().Element(c => CelulaGrupo(c, inicio)).AlignRight().Text(DataBr(f.UltimoDia));
-                    }
-                }
+                    lista.Item().EnsureSpace(110).Element(c => TabelaPessoa(c, p));
             });
+        });
+    }
+
+    private static void TabelaPessoa(IContainer container, Pessoa p)
+    {
+        container.Border(1).BorderColor("#dfe3e8").Table(tabela =>
+        {
+            tabela.ColumnsDefinition(c =>
+            {
+                c.RelativeColumn();
+                c.ConstantColumn(70);
+                c.ConstantColumn(80);
+            });
+
+            tabela.Header(h =>
+            {
+                h.Cell().ColumnSpan(3).Background("#f1f3f6").PaddingVertical(7).PaddingHorizontal(10).Row(linha =>
+                {
+                    linha.RelativeItem().Text(p.Email).SemiBold().FontSize(10.5f);
+                    linha.AutoItem().AlignMiddle()
+                        .Text($"{Num(p.Total)} abertura(s) · {Num(p.Ferramentas.Count)} ferramenta(s) · último uso {DataBr(p.UltimoDia)}")
+                        .FontSize(8).FontColor("#5b6670");
+                });
+                h.Cell().Element(Th).PaddingLeft(10).Text("Ferramenta");
+                h.Cell().Element(Th).AlignRight().Text("Aberturas");
+                h.Cell().Element(Th).AlignRight().PaddingRight(10).Text("Último uso");
+            });
+
+            foreach (var f in p.Ferramentas)
+            {
+                tabela.Cell().Element(TdPessoa).PaddingLeft(10).Text(NomeFerramenta(f.Comando));
+                tabela.Cell().Element(TdPessoa).AlignRight().Text(Num(f.Total));
+                tabela.Cell().Element(TdPessoa).AlignRight().PaddingRight(10).Text(DataBr(f.UltimoDia));
+            }
         });
     }
 
@@ -270,19 +276,11 @@ public sealed class UsageReportPdf : IUsageReportPdf
             .PaddingVertical(5)
             .DefaultTextStyle(t => t.FontSize(10));
 
-    // Linha que abre o grupo de uma pessoa: traço mais forte em cima, separando
-    // uma pessoa da outra.
-    private static IContainer InicioGrupo(IContainer container, bool inicio) =>
-        inicio ? container.BorderTop(1).BorderColor("#9aa3ad") : container;
-
-    private static IContainer CelulaPessoa(IContainer container, bool inicio) =>
-        InicioGrupo(container, inicio)
-            .PaddingVertical(3).PaddingRight(8)
-            .DefaultTextStyle(t => t.FontSize(9));
-
-    private static IContainer CelulaGrupo(IContainer container, bool inicio) =>
-        InicioGrupo(container, inicio)
+    // Linha da tabela de uma pessoa: um pouco mais compacta que a do uso por
+    // ferramenta, porque a soma das pessoas é a parte longa do documento.
+    private static IContainer TdPessoa(IContainer container) =>
+        container
             .BorderBottom(1).BorderColor("#edf0f3")
-            .PaddingVertical(3)
-            .DefaultTextStyle(t => t.FontSize(9));
+            .PaddingVertical(4)
+            .DefaultTextStyle(t => t.FontSize(9.5f));
 }
