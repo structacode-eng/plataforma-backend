@@ -148,9 +148,14 @@ public sealed class UsageReportPdf : IUsageReportPdf
 
                 foreach (var p in pessoas)
                 {
-                    // Uma pessoa não deve começar no fim de uma página e
-                    // continuar na seguinte com a tabela órfã do nome.
-                    bloco.Item().PaddingTop(10).ShowEntire().Column(pessoa =>
+                    // Uma pessoa não deve começar no fim de uma página com o nome
+                    // sozinho: se não couberem o nome e as primeiras linhas, ela
+                    // começa na página seguinte. Não pode ser ShowEntire: quem
+                    // abriu mais ferramentas do que cabem numa página nunca cabe
+                    // inteiro, e o QuestPDF desistia do documento todo
+                    // (DocumentLayoutException, o 500 de 19/10/2026). A tabela
+                    // segue na página seguinte com o cabeçalho repetido.
+                    bloco.Item().PaddingTop(10).EnsureSpace(110).Column(pessoa =>
                     {
                         pessoa.Item().Row(linha =>
                         {
