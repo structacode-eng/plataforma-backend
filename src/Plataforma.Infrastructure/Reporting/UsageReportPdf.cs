@@ -29,6 +29,26 @@ public sealed class UsageReportPdf : IUsageReportPdf
 
     private static string Num(int n) => n.ToString("N0", Br);
 
+    /// <summary>
+    /// Agora no horário de Brasília. O servidor (Railway) roda em UTC, e o
+    /// DateTime.Now dele imprimia "emitido em" 3 h adiantado. Pelo fuso
+    /// America/Sao_Paulo (a imagem Debian traz a base de fusos); se ele não
+    /// existir na máquina, UTC-3 fixo, que é o mesmo desde o fim do horário de
+    /// verão, em 2019.
+    /// </summary>
+    public static DateTime AgoraBrasilia(DateTime utcAgora)
+    {
+        try
+        {
+            var fuso = TimeZoneInfo.FindSystemTimeZoneById("America/Sao_Paulo");
+            return TimeZoneInfo.ConvertTimeFromUtc(utcAgora, fuso);
+        }
+        catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
+        {
+            return utcAgora.AddHours(-3);
+        }
+    }
+
     public byte[] Gerar(UsoRelatorioDto r)
     {
         var pessoas = r.PorPessoa
@@ -65,7 +85,7 @@ public sealed class UsageReportPdf : IUsageReportPdf
 
     private static void Cabecalho(IContainer container, UsoRelatorioDto r)
     {
-        var emitido = DateTime.Now.ToString("dd/MM/yyyy HH:mm", Br);
+        var emitido = AgoraBrasilia(DateTime.UtcNow).ToString("dd/MM/yyyy HH:mm", Br) + " (horário de Brasília)";
         var produto = string.IsNullOrWhiteSpace(r.Produto) ? "Todos os produtos" : r.Produto;
 
         container.PaddingBottom(14).Column(col =>

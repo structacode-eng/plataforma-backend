@@ -89,6 +89,18 @@ public sealed class RelatorioUsoPdfTests
         AssertPdf(new UsageReportPdf().Gerar(Relatorio(uso)));
     }
 
+    [Theory]
+    // O servidor roda em UTC; o "emitido em" do PDF é no horário de Brasília,
+    // 3 h atrás, o ano todo (sem horário de verão desde 2019).
+    [InlineData("2026-10-19T17:14:00Z", "19/10/2026 14:14")]
+    [InlineData("2026-01-15T12:00:00Z", "15/01/2026 09:00")]
+    [InlineData("2026-10-20T01:30:00Z", "19/10/2026 22:30")]   // já é dia 20 em UTC
+    public void Emitido_em_sai_no_horario_de_brasilia(string utcIso, string esperado)
+    {
+        var utc = DateTime.Parse(utcIso, null, System.Globalization.DateTimeStyles.AdjustToUniversal);
+        Assert.Equal(esperado, UsageReportPdf.AgoraBrasilia(utc).ToString("dd/MM/yyyy HH:mm"));
+    }
+
     [Fact]
     public void Varias_pessoas_com_os_rotulos_com_simbolo_geram_o_pdf()
     {
