@@ -66,7 +66,7 @@ public sealed class AdminController : ControllerBase
 
         var relatorio = await _uso.RelatorioAsync(periodo.Value, produto, ct);
         return File(_pdf.Gerar(relatorio), "application/pdf",
-            $"uso-{relatorio.De}-a-{relatorio.Ate}.pdf");
+            $"Relatorio_Uso_Filippon_{relatorio.De}_a_{relatorio.Ate}.pdf");
     }
 
     /// <summary>Repassa o erro de um Result para outro tipo, preservando o Code.</summary>

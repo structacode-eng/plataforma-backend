@@ -1375,7 +1375,7 @@
         const url = URL.createObjectURL(await res.blob());
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'uso-' + p[0] + '-a-' + p[1] + '.pdf';
+        a.download = 'Relatorio_Uso_Filippon_' + p[0] + '_a_' + p[1] + '.pdf';
         document.body.appendChild(a);
         a.click();
         a.remove();

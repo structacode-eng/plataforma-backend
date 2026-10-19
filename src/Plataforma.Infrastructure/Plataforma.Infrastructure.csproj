@@ -4,6 +4,14 @@
     <ProjectReference Include="..\Plataforma.Application\Plataforma.Application.csproj" />
   </ItemGroup>
 
+  <!-- Fonte e logo do relatório de uso em PDF: vão dentro da DLL, porque o
+       servidor (Linux, no Railway) não tem fontes nem acesso ao Drive. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Reporting\Assets\LiberationSans-Regular.ttf" LogicalName="Relatorio.LiberationSans-Regular.ttf" />
+    <EmbeddedResource Include="Reporting\Assets\LiberationSans-Bold.ttf" LogicalName="Relatorio.LiberationSans-Bold.ttf" />
+    <EmbeddedResource Include="Reporting\Assets\logo-structa-horizontal.png" LogicalName="Relatorio.logo-structa-horizontal.png" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Konscious.Security.Cryptography.Argon2" Version="1.3.1" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.10" />

@@ -1,6 +1,8 @@
 using System.Globalization;
+using System.Reflection;
 using Plataforma.Application.Abstractions;
 using Plataforma.Application.Telemetry;
+using QuestPDF.Drawing;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
@@ -8,26 +10,81 @@ using QuestPDF.Infrastructure;
 namespace Plataforma.Infrastructure.Reporting;
 
 /// <summary>
-/// Relatório de uso em PDF: resumo do período e detalhamento por pessoa.
+/// Relatório de uso em PDF, no modelo "dashboard" aprovado em 19/10/2026
+/// (Relatorio_Uso_Filippon_2026-09-28_a_2026-10-19.pdf): faixa da Structa
+/// Studio, título, período, quatro indicadores e dois gráficos de barras
+/// horizontais, um por ferramenta e outro por pessoa.
 ///
-/// A granularidade é a mesma da tabela usage_daily — contagem por dia. Não há
-/// hora de abertura para mostrar, então o documento vai até "quantas vezes" e
-/// "último dia de uso", e não além disso.
+/// <para>Todas as contas entram em "Uso por pessoa", inclusive quem não abriu
+/// nada no período (barra vazia, no fim). As pessoas aparecem pelo nome, tirado
+/// do e-mail (<see cref="NomePessoa"/>).</para>
+///
+/// <para>A granularidade é a da tabela usage_daily, contagem por dia: o documento
+/// vai até "quantas vezes" e "último dia de uso".</para>
 /// </summary>
 public sealed class UsageReportPdf : IUsageReportPdf
 {
     private static readonly CultureInfo Br = new("pt-BR");
 
+    // Cores do modelo aprovado.
+    private const string Navy = "#1c2757";
+    private const string Laranja = "#ee7b39";
+    private const string LaranjaClaro = "#f6bc98";
+    private const string Creme = "#f4f1ec";
+    private const string Borda = "#e3e0da";
+    private const string Tinta = "#222222";
+    private const string Cinza = "#6b6b6b";
+    private const string CinzaFaixa = "#d6dae8";
+
+    private const string Fonte = "Liberation Sans";
+    private const string Produto = "Toolbar Filippon Engenharia";
+
+    // Larguras dos gráficos, em pontos (A4 com 2 cm de margem = ~482 pt úteis).
+    private const float RotuloFerramenta = 165, BarraFerramenta = 235;
+    private const float RotuloPessoa = 80, BarraPessoa = 210;
+
+    private static readonly byte[] Logo;
+
+    /// <summary>A fonte do modelo (Liberation Sans, licença SIL OFL) e o logo vão
+    /// dentro da DLL: o servidor Linux do Railway não tem fontes instaladas, e sem
+    /// isto o PDF sairia com a fonte padrão do QuestPDF.</summary>
+    static UsageReportPdf()
+    {
+        var asm = typeof(UsageReportPdf).Assembly;
+        foreach (var nome in new[] { "Relatorio.LiberationSans-Regular.ttf", "Relatorio.LiberationSans-Bold.ttf" })
+        {
+            using var s = asm.GetManifestResourceStream(nome);
+            if (s != null) FontManager.RegisterFont(s);
+        }
+        Logo = Recurso(asm, "Relatorio.logo-structa-horizontal.png");
+    }
+
+    private static byte[] Recurso(Assembly asm, string nome)
+    {
+        using var s = asm.GetManifestResourceStream(nome);
+        if (s == null) return Array.Empty<byte>();
+        using var ms = new MemoryStream();
+        s.CopyTo(ms);
+        return ms.ToArray();
+    }
+
     // O rótulo vem da tabela compartilhada, para o PDF dizer o mesmo nome que a
-    // pessoa lê no botão do Revit — e o mesmo que o painel mostra na tela.
+    // pessoa lê no botão do Revit, e o mesmo que o painel mostra na tela.
     private static string NomeFerramenta(string slug) => FerramentaNomes.Exibir(slug);
 
     private static string DataBr(string iso) =>
         DateOnly.TryParse(iso, CultureInfo.InvariantCulture, DateTimeStyles.None, out var d)
             ? d.ToString("dd/MM/yyyy", Br)
-            : (string.IsNullOrWhiteSpace(iso) ? "—" : iso);
+            : (string.IsNullOrWhiteSpace(iso) ? "-" : iso);
+
+    private static string DataCurta(string iso) =>
+        DateOnly.TryParse(iso, CultureInfo.InvariantCulture, DateTimeStyles.None, out var d)
+            ? d.ToString("dd/MM", Br)
+            : iso;
 
     private static string Num(int n) => n.ToString("N0", Br);
+
+    private static string Plural(int n, string um, string varios) => $"{Num(n)} {(n == 1 ? um : varios)}";
 
     /// <summary>
     /// Agora no horário de Brasília. O servidor (Railway) roda em UTC, e o
@@ -49,296 +106,280 @@ public sealed class UsageReportPdf : IUsageReportPdf
         }
     }
 
-    /// <summary>Uma pessoa no relatório: os totais e as ferramentas, da mais usada
-    /// para a menos usada.</summary>
-    private sealed record Pessoa(string Email, int Total, string UltimoDia, IReadOnlyList<UsoPessoaDto> Ferramentas);
+    private static string RotuloProduto(string? produto) => produto?.Trim().ToLowerInvariant() switch
+    {
+        null or "" => "Todos os produtos",
+        "revit-plugin" => "Plugin Revit",
+        "solutions" => "Filippon Solutions",
+        var p => p,
+    };
+
+    /// <summary>Uma linha do gráfico de pessoas: quem usou e quem não usou.</summary>
+    private sealed record LinhaPessoa(string Nome, int Total, int Ferramentas, string UltimoDia,
+                                      bool SemUso, bool Ativa, DateTime? UltimoAcessoUtc);
 
     public byte[] Gerar(UsoRelatorioDto r)
     {
-        var pessoas = r.PorPessoa
+        var comUso = r.PorPessoa
             .GroupBy(p => p.Email)
-            .Select(g => new Pessoa(
-                g.Key,
+            .Select(g => new LinhaPessoa(
+                NomePessoa.DoEmail(g.Key),
                 g.Sum(x => x.Total),
+                g.Count(),
                 g.Max(x => x.UltimoDia) ?? "",   // ISO: a ordem de texto é a de data
-                g.OrderByDescending(x => x.Total).ThenBy(x => NomeFerramenta(x.Comando)).ToList()))
+                false, true, null))
             .OrderByDescending(p => p.Total)
-            .ToList();
+            .ThenBy(p => p.Nome, StringComparer.Create(Br, true));
+
+        var semUso = r.SemUso
+            .Select(s => new LinhaPessoa(NomePessoa.DoEmail(s.Email), 0, 0, "", true, s.Ativa, s.UltimoAcessoUtc))
+            .OrderBy(p => p.Nome, StringComparer.Create(Br, true));
+
+        var pessoas = comUso.Concat(semUso).ToList();
+        var emitido = AgoraBrasilia(DateTime.UtcNow);
 
         return Document.Create(doc =>
         {
             doc.Page(page =>
             {
                 page.Size(PageSizes.A4);
-                page.Margin(2, Unit.Centimetre);
-                page.DefaultTextStyle(t => t.FontSize(10).FontColor("#1b2128"));
+                page.MarginHorizontal(2, Unit.Centimetre);
+                page.MarginTop(1.6f, Unit.Centimetre);
+                page.MarginBottom(1.2f, Unit.Centimetre);
+                page.DefaultTextStyle(t => t.FontFamily(Fonte).FontSize(8.5f).FontColor(Tinta));
 
-                page.Header().Element(c => Cabecalho(c, r));
+                page.Header().Element(c => Cabecalho(c, r, emitido));
                 page.Content().Element(c => Conteudo(c, r, pessoas));
-
-                page.Footer().AlignCenter().Text(t =>
-                {
-                    t.DefaultTextStyle(s => s.FontSize(8).FontColor("#6b7783"));
-                    t.Span("página ");
-                    t.CurrentPageNumber();
-                    t.Span(" de ");
-                    t.TotalPages();
-                });
+                page.Footer().Element(Rodape);
             });
-        }).GeneratePdf();
+        })
+        .WithMetadata(new DocumentMetadata
+        {
+            Title = "Relatório de Uso · " + Produto,
+            Author = "Structa Studio",
+            Subject = $"Uso de {DataBr(r.De)} a {DataBr(r.Ate)}",
+        })
+        .GeneratePdf();
     }
 
-    /// <summary>Cabeçalho completo só na primeira página; nas outras, uma linha
-    /// com o período, para não gastar um quarto de cada folha repetindo o
-    /// título.</summary>
-    private static void Cabecalho(IContainer container, UsoRelatorioDto r)
-    {
-        var emitido = AgoraBrasilia(DateTime.UtcNow).ToString("dd/MM/yyyy HH:mm", Br) + " (horário de Brasília)";
-        var produto = string.IsNullOrWhiteSpace(r.Produto) ? "Todos os produtos" : r.Produto;
+    // ------------------------------------------------------------------
+    // Cabeçalho e rodapé
+    // ------------------------------------------------------------------
 
+    /// <summary>Primeira página: faixa da marca, título e barra do período. Nas
+    /// outras, uma linha discreta com o período.</summary>
+    private static void Cabecalho(IContainer container, UsoRelatorioDto r, DateTime emitido)
+    {
         container.Column(col =>
         {
-            col.Item().ShowOnce().PaddingBottom(14).Column(topo =>
+            col.Item().ShowOnce().Column(topo =>
             {
-                topo.Item().Text("FILIPPON SOLUTIONS")
-                    .FontSize(8).FontColor("#6b7783");
+                topo.Item().Background(Navy).CornerRadius(6).PaddingVertical(21).PaddingHorizontal(22).Row(faixa =>
+                {
+                    if (Logo.Length > 0)
+                        faixa.RelativeItem().AlignMiddle().Height(22).AlignLeft().Image(Logo).FitHeight();
+                    else
+                        faixa.RelativeItem().AlignMiddle().Text(t =>
+                        {
+                            t.Span("Structa").FontSize(19).Bold().FontColor(Colors.White);
+                            t.Span("Studio").FontSize(19).FontColor(Colors.White);
+                        });
+                    faixa.AutoItem().AlignMiddle().Column(c =>
+                    {
+                        c.Item().AlignRight().Text(Produto).FontSize(8.5f).FontColor(CinzaFaixa);
+                        c.Item().PaddingTop(2).AlignRight().Text(RotuloProduto(r.Produto)).FontSize(8.5f).FontColor(CinzaFaixa);
+                    });
+                });
 
-                topo.Item().PaddingTop(2).Text("Relatório de uso")
-                    .FontSize(19).SemiBold();
+                topo.Item().PaddingTop(18).Text("Relatório de Uso").FontSize(24).Bold();
+                topo.Item().PaddingTop(2).Text(Produto).FontSize(13).Bold().FontColor(Laranja);
 
-                topo.Item().PaddingTop(4)
-                    .Text($"Período de {DataBr(r.De)} a {DataBr(r.Ate)} · {r.Dias} dia(s)")
-                    .FontSize(10).FontColor("#3d4650");
-
-                topo.Item().Text($"{produto} · emitido em {emitido}")
-                    .FontSize(9).FontColor("#6b7783");
-
-                topo.Item().PaddingTop(10).LineHorizontal(1).LineColor("#e1e5ea");
+                topo.Item().PaddingTop(12).Background(Creme).CornerRadius(4).PaddingVertical(8).PaddingHorizontal(12).Row(linha =>
+                {
+                    linha.RelativeItem().Text(t =>
+                    {
+                        t.DefaultTextStyle(s => s.FontSize(9).FontColor(Cinza));
+                        t.Span("Período ");
+                        t.Span($"{DataBr(r.De)} a {DataBr(r.Ate)}").Bold().FontColor(Tinta);
+                        t.Span($" · {Plural(r.Dias, "dia", "dias")}");
+                    });
+                    linha.AutoItem().Text(t =>
+                    {
+                        t.DefaultTextStyle(s => s.FontSize(9).FontColor(Cinza));
+                        t.Span("Emitido em ");
+                        t.Span(emitido.ToString("dd/MM/yyyy HH:mm", Br)).Bold().FontColor(Tinta);
+                    });
+                });
             });
 
-            col.Item().SkipOnce().PaddingBottom(10).Column(fino =>
+            col.Item().SkipOnce().PaddingBottom(14)
+                .Text($"Relatório de Uso · {Produto} · {DataBr(r.De)} a {DataBr(r.Ate)}")
+                .FontSize(7.5f).FontColor(Cinza);
+        });
+    }
+
+    private static void Rodape(IContainer container)
+    {
+        container.Column(col =>
+        {
+            col.Item().LineHorizontal(0.8f).LineColor(Laranja);
+            col.Item().PaddingTop(6).Row(linha =>
             {
-                fino.Item().Text($"Relatório de uso · {DataBr(r.De)} a {DataBr(r.Ate)} · {produto}")
-                    .FontSize(8).FontColor("#6b7783");
-                fino.Item().PaddingTop(4).LineHorizontal(1).LineColor("#e1e5ea");
+                linha.RelativeItem();
+                linha.AutoItem().Text(t =>
+                {
+                    t.DefaultTextStyle(s => s.FontSize(7.5f).FontColor(Cinza));
+                    t.Span("Structa Studio").Bold().FontColor(Tinta);
+                    t.Span("  •  Filippon Engenharia");
+                });
+                linha.RelativeItem().AlignRight().Text(t =>
+                {
+                    t.DefaultTextStyle(s => s.FontSize(7.5f).FontColor(Cinza));
+                    t.Span("página ");
+                    t.CurrentPageNumber();
+                });
             });
         });
     }
 
-    private static void Conteudo(IContainer container, UsoRelatorioDto r, IReadOnlyList<Pessoa> pessoas)
+    // ------------------------------------------------------------------
+    // Conteúdo
+    // ------------------------------------------------------------------
+
+    private static void Conteudo(IContainer container, UsoRelatorioDto r, IReadOnlyList<LinhaPessoa> pessoas)
     {
-        container.PaddingTop(14).Column(col =>
+        container.PaddingTop(16).Column(col =>
         {
-            col.Spacing(18);
+            col.Spacing(22);
 
-            // Um relatório vazio precisa dizer que está vazio. Uma folha em
-            // branco deixa a dúvida entre "ninguém usou" e "o PDF quebrou".
-            // Mesmo vazio, o relatório lista as contas: "todos os usuários,
-            // inclusive quem usou zero vezes" (pedido de 19/10/2026).
-            if (r.TotalGeral == 0)
-            {
-                col.Item().Text("Nenhuma abertura registrada no período.")
-                    .FontSize(11).FontColor("#6b7783");
-                if (r.SemUso.Count > 0)
-                    col.Item().Element(c => SemUsoNoPeriodo(c, r.SemUso));
-                return;
-            }
-
-            // "10 de 14": quantas pessoas usaram, entre todas as contas.
-            var ativas = r.TotalContas > 0
-                ? $"{Num(r.PessoasAtivas)} de {Num(r.TotalContas)}"
-                : Num(r.PessoasAtivas);
+            int media = r.PessoasAtivas > 0
+                ? (int)Math.Round((double)r.TotalGeral / r.PessoasAtivas, MidpointRounding.AwayFromZero)
+                : 0;
+            string contas = r.TotalContas > 0
+                ? $"com uso, de {Plural(r.TotalContas, "conta", "contas")}"
+                : "com ao menos um uso";
 
             col.Item().Row(row =>
             {
                 row.Spacing(10);
-                row.RelativeItem().Element(c => Kpi(c, "ABERTURAS", Num(r.TotalGeral)));
-                row.RelativeItem().Element(c => Kpi(c, "PESSOAS ATIVAS", ativas));
-                row.RelativeItem().Element(c => Kpi(c, "FERRAMENTAS USADAS", Num(r.Ferramentas.Count)));
+                row.RelativeItem().Element(c => Kpi(c, "ABERTURAS", Num(r.TotalGeral), "total de aberturas no período"));
+                row.RelativeItem().Element(c => Kpi(c, "PESSOAS ATIVAS", Num(r.PessoasAtivas), contas));
+                row.RelativeItem().Element(c => Kpi(c, "FERRAMENTAS USADAS", Num(r.Ferramentas.Count), "abertas ao menos uma vez"));
+                row.RelativeItem().Element(c => Kpi(c, "MÉDIA POR PESSOA", Num(media), "aberturas por pessoa ativa"));
             });
 
-            // A seção só começa se couberem o título e as primeiras linhas; senão,
-            // vai para a página seguinte (sem isto, o título podia ficar sozinho no
-            // pé da folha).
-            col.Item().EnsureSpace(90).Element(c => UsoPorFerramenta(c, r.Ferramentas));
+            var periodo = $"de {DataCurta(r.De)} a {DataBr(r.Ate)}";
 
-            // "Uso por pessoa" sempre começa numa página nova (pedido de
-            // 19/10/2026): a parte de cada pessoa fica separada do resumo.
-            col.Item().PageBreak();
-            col.Item().Element(c => UsoPorPessoa(c, pessoas));
+            col.Item().EnsureSpace(90).Element(c => Secao(c, "Uso por ferramenta",
+                $"Aberturas por ferramenta {periodo} · ao lado, quantas pessoas usaram cada uma",
+                lista =>
+                {
+                    if (r.Ferramentas.Count == 0)
+                    {
+                        lista.Item().Text("Nenhuma abertura registrada no período.").FontSize(9).FontColor(Cinza);
+                        return;
+                    }
+                    int max = r.Ferramentas.Max(f => f.Total);
+                    for (int i = 0; i < r.Ferramentas.Count; i++)
+                    {
+                        var f = r.Ferramentas[i];
+                        lista.Item().Element(c => Barra(c, NomeFerramenta(f.Comando), RotuloFerramenta, BarraFerramenta,
+                            f.Total, max, destaque: i < 3, rotuloApagado: false,
+                            complemento: $"  · {Plural(f.Pessoas, "pessoa", "pessoas")}"));
+                    }
+                }));
 
-            // Depois das pessoas que usaram, as que não usaram, numa tabela só.
-            if (r.SemUso.Count > 0)
-                col.Item().EnsureSpace(110).Element(c => SemUsoNoPeriodo(c, r.SemUso));
+            col.Item().EnsureSpace(90).Element(c => Secao(c, "Uso por pessoa",
+                $"Total de aberturas por pessoa {periodo} · ferramentas usadas e último uso ao lado",
+                lista =>
+                {
+                    if (pessoas.Count == 0)
+                    {
+                        lista.Item().Text("Nenhuma conta cadastrada.").FontSize(9).FontColor(Cinza);
+                        return;
+                    }
+                    int max = Math.Max(1, pessoas.Max(p => p.Total));
+                    for (int i = 0; i < pessoas.Count; i++)
+                    {
+                        var p = pessoas[i];
+                        lista.Item().Element(c => Barra(c, p.Nome, RotuloPessoa, BarraPessoa,
+                            p.Total, max, destaque: !p.SemUso && i < 3, rotuloApagado: p.SemUso,
+                            complemento: ComplementoPessoa(p)));
+                    }
+                }));
         });
     }
 
-    /// <summary>
-    /// Contas sem nenhuma abertura no período, numa tabela só, no fim do "Uso por
-    /// pessoa". Uma tabela por pessoa aqui seria uma página de tabelas vazias; o
-    /// que importa delas é a situação da conta e quando entraram pela última vez
-    /// (conta ativa que nunca entrou, ou que parou de entrar, é o que o gestor
-    /// procura nesta lista).
-    /// </summary>
-    private static void SemUsoNoPeriodo(IContainer container, IReadOnlyList<PessoaSemUsoDto> semUso)
+    private static string ComplementoPessoa(LinhaPessoa p)
     {
-        container.Column(bloco =>
+        if (!p.SemUso)
+            return $"  · {Plural(p.Ferramentas, "ferramenta", "ferramentas")} · último uso {DataBr(p.UltimoDia)}";
+
+        var acesso = p.UltimoAcessoUtc is { } u
+            ? "último acesso " + AgoraBrasilia(DateTime.SpecifyKind(u, DateTimeKind.Utc)).ToString("dd/MM/yyyy", Br)
+            : "nunca entrou no plugin";
+        return $"  · sem uso no período · {acesso}{(p.Ativa ? "" : " · conta desativada")}";
+    }
+
+    /// <summary>Seção com título sublinhado em laranja. Se a lista passar para a
+    /// página seguinte, o título se repete lá com "continuação" no lugar do
+    /// subtítulo, como no modelo.</summary>
+    private static void Secao(IContainer container, string titulo, string subtitulo, Action<ColumnDescriptor> conteudo)
+    {
+        container.Decoration(d =>
         {
-            bloco.Item().Text($"Sem uso no período ({Num(semUso.Count)})").FontSize(12).SemiBold();
-            bloco.Item().PaddingTop(2).Text("Contas que não abriram nenhuma ferramenta no período.")
-                .FontSize(8.5f).FontColor("#6b7783");
-
-            bloco.Item().PaddingTop(8).Border(1).BorderColor("#dfe3e8").Table(tabela =>
+            d.Before().PaddingBottom(10).Column(cab =>
             {
-                tabela.ColumnsDefinition(c =>
-                {
-                    c.RelativeColumn();
-                    c.ConstantColumn(80);
-                    c.ConstantColumn(130);
-                });
+                cab.Item().Text(titulo).FontSize(15).Bold();
+                cab.Item().PaddingTop(3).LineHorizontal(1.2f).LineColor(Laranja);
+                cab.Item().ShowOnce().PaddingTop(6).Text(subtitulo).FontSize(8.5f).FontColor(Cinza);
+                cab.Item().SkipOnce().PaddingTop(6).Text("continuação").FontSize(8.5f).FontColor(Cinza);
+            });
+            d.Content().Column(conteudo);
+        });
+    }
 
-                tabela.Header(h =>
-                {
-                    h.Cell().Element(Th).PaddingLeft(10).Text("Pessoa");
-                    h.Cell().Element(Th).Text("Conta");
-                    h.Cell().Element(Th).AlignRight().PaddingRight(10).Text("Último acesso ao plugin");
-                });
+    /// <summary>Uma barra horizontal: rótulo à direita da coluna de rótulos, a barra
+    /// proporcional ao maior valor e, logo depois dela, o número em negrito e o
+    /// complemento em cinza. As três primeiras em laranja forte.</summary>
+    private static void Barra(IContainer container, string rotulo, float largRotulo, float largBarra,
+                              int valor, int max, bool destaque, bool rotuloApagado, string complemento)
+    {
+        float comprimento = valor <= 0 ? 0 : Math.Max(2f, largBarra * valor / Math.Max(1, max));
 
-                foreach (var s in semUso)
+        container.PaddingVertical(2.6f).Row(linha =>
+        {
+            linha.ConstantItem(largRotulo).AlignRight().AlignMiddle()
+                .Text(rotulo).FontSize(8.5f).FontColor(rotuloApagado ? Cinza : Tinta);
+            linha.ConstantItem(8);
+            linha.RelativeItem().AlignMiddle().Row(b =>
+            {
+                if (comprimento > 0)
                 {
-                    tabela.Cell().Element(TdPessoa).PaddingLeft(10).Text(s.Email);
-                    tabela.Cell().Element(TdPessoa).Text(s.Ativa ? "ativa" : "desativada")
-                        .FontColor(s.Ativa ? "#1b2128" : "#a33a3a");
-                    tabela.Cell().Element(TdPessoa).AlignRight().PaddingRight(10).Text(
-                        s.UltimoAcessoUtc is { } u
-                            ? AgoraBrasilia(DateTime.SpecifyKind(u, DateTimeKind.Utc)).ToString("dd/MM/yyyy", Br)
-                            : "nunca entrou");
+                    b.ConstantItem(comprimento).AlignMiddle().Height(9)
+                        .Background(destaque ? Laranja : LaranjaClaro).CornerRadius(2);
+                    b.ConstantItem(6);
                 }
-            });
-        });
-    }
-
-    private static void UsoPorFerramenta(IContainer container, IReadOnlyList<FerramentaDto> ferramentas)
-    {
-        container.Column(bloco =>
-        {
-            bloco.Item().Text("Uso por ferramenta").FontSize(12).SemiBold();
-
-            bloco.Item().PaddingTop(6).Table(tabela =>
-            {
-                tabela.ColumnsDefinition(c =>
+                b.RelativeItem().AlignMiddle().Text(t =>
                 {
-                    c.RelativeColumn(4);
-                    c.ConstantColumn(80);
-                    c.ConstantColumn(70);
+                    t.Span(Num(valor)).FontSize(8).Bold().FontColor(rotuloApagado ? Cinza : Tinta);
+                    t.Span(complemento).FontSize(8).FontColor(Cinza);
                 });
-
-                tabela.Header(h =>
-                {
-                    h.Cell().Element(Th).Text("Ferramenta");
-                    h.Cell().Element(Th).AlignRight().Text("Aberturas");
-                    h.Cell().Element(Th).AlignRight().Text("Pessoas");
-                });
-
-                foreach (var f in ferramentas)
-                {
-                    tabela.Cell().Element(Td).Text(NomeFerramenta(f.Comando));
-                    tabela.Cell().Element(Td).AlignRight().Text(Num(f.Total));
-                    tabela.Cell().Element(Td).AlignRight().Text(Num(f.Pessoas));
-                }
             });
         });
     }
 
-    /// <summary>
-    /// Uma tabela para cada pessoa, com espaço entre uma e outra (pedido de
-    /// 19/10/2026). O nome e os totais da pessoa ficam no cabeçalho da tabela dela,
-    /// junto dos títulos das colunas: se a lista passar para a página seguinte, o
-    /// cabeçalho se repete lá em cima e dá para saber de quem é.
-    ///
-    /// <para>A tabela pode quebrar em qualquer linha, então ninguém precisa caber
-    /// numa página (exigir isso era a causa do 500 de 19/10/2026). Ela só começa se
-    /// couberem o cabeçalho e as primeiras linhas; senão, vai para a página
-    /// seguinte.</para>
-    /// </summary>
-    private static void UsoPorPessoa(IContainer container, IReadOnlyList<Pessoa> pessoas)
+    private static void Kpi(IContainer container, string rotulo, string valor, string legenda)
     {
-        container.Column(bloco =>
+        container.Border(1).BorderColor(Borda).Column(col =>
         {
-            bloco.Item().Text("Uso por pessoa").FontSize(12).SemiBold();
-
-            bloco.Item().PaddingTop(10).Column(lista =>
+            col.Item().Height(3).Background(Laranja);
+            col.Item().PaddingHorizontal(10).PaddingTop(9).PaddingBottom(10).Column(c =>
             {
-                lista.Spacing(24);   // o espaço entre uma pessoa e outra
-                foreach (var p in pessoas)
-                    lista.Item().EnsureSpace(110).Element(c => TabelaPessoa(c, p));
+                c.Item().Text(rotulo).FontSize(7).Bold().FontColor(Cinza);
+                c.Item().PaddingTop(4).Text(valor).FontSize(20).Bold();
+                c.Item().PaddingTop(5).Text(legenda).FontSize(6.8f).FontColor(Cinza);
             });
         });
     }
-
-    private static void TabelaPessoa(IContainer container, Pessoa p)
-    {
-        container.Border(1).BorderColor("#dfe3e8").Table(tabela =>
-        {
-            tabela.ColumnsDefinition(c =>
-            {
-                c.RelativeColumn();
-                c.ConstantColumn(70);
-                c.ConstantColumn(80);
-            });
-
-            tabela.Header(h =>
-            {
-                h.Cell().ColumnSpan(3).Background("#f1f3f6").PaddingVertical(7).PaddingHorizontal(10).Row(linha =>
-                {
-                    linha.RelativeItem().Text(p.Email).SemiBold().FontSize(10.5f);
-                    linha.AutoItem().AlignMiddle()
-                        .Text($"{Num(p.Total)} abertura(s) · {Num(p.Ferramentas.Count)} ferramenta(s) · último uso {DataBr(p.UltimoDia)}")
-                        .FontSize(8).FontColor("#5b6670");
-                });
-                h.Cell().Element(Th).PaddingLeft(10).Text("Ferramenta");
-                h.Cell().Element(Th).AlignRight().Text("Aberturas");
-                h.Cell().Element(Th).AlignRight().PaddingRight(10).Text("Último uso");
-            });
-
-            foreach (var f in p.Ferramentas)
-            {
-                tabela.Cell().Element(TdPessoa).PaddingLeft(10).Text(NomeFerramenta(f.Comando));
-                tabela.Cell().Element(TdPessoa).AlignRight().Text(Num(f.Total));
-                tabela.Cell().Element(TdPessoa).AlignRight().PaddingRight(10).Text(DataBr(f.UltimoDia));
-            }
-        });
-    }
-
-    private static void Kpi(IContainer container, string rotulo, string valor)
-    {
-        container
-            .Border(1).BorderColor("#e1e5ea").CornerRadius(6)
-            .Padding(10)
-            .Column(col =>
-            {
-                col.Item().Text(rotulo).FontSize(7).FontColor("#6b7783");
-                col.Item().PaddingTop(3).Text(valor).FontSize(16).SemiBold();
-            });
-    }
-
-    private static IContainer Th(IContainer container) =>
-        container
-            .BorderBottom(1).BorderColor("#c9ced5")
-            .PaddingVertical(5)
-            .DefaultTextStyle(t => t.FontSize(8).SemiBold().FontColor("#3d4650"));
-
-    private static IContainer Td(IContainer container) =>
-        container
-            .BorderBottom(1).BorderColor("#edf0f3")
-            .PaddingVertical(5)
-            .DefaultTextStyle(t => t.FontSize(10));
-
-    // Linha da tabela de uma pessoa: um pouco mais compacta que a do uso por
-    // ferramenta, porque a soma das pessoas é a parte longa do documento.
-    private static IContainer TdPessoa(IContainer container) =>
-        container
-            .BorderBottom(1).BorderColor("#edf0f3")
-            .PaddingVertical(4)
-            .DefaultTextStyle(t => t.FontSize(9.5f));
 }

@@ -1,0 +1,11 @@
+Liberation Sans 2.1.5 (LiberationSans-Regular.ttf, LiberationSans-Bold.ttf)
+
+Digitized data copyright (c) 2010 Google Corporation.
+Copyright (c) 2012 Red Hat, Inc.
+
+Licensed under the SIL Open Font License, Version 1.1
+https://scripts.sil.org/OFL
+
+Embutida no backend para o PDF do relatório de uso sair igual ao modelo
+aprovado (que usa esta fonte) também no servidor Linux, que não tem fontes
+instaladas. A fonte não é vendida separadamente nem modificada.
