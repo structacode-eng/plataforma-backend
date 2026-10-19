@@ -18,6 +18,16 @@ public sealed class UsoPessoaDto
     public string UltimoDia { get; init; } = "";
 }
 
+/// <summary>Conta que não abriu nenhuma ferramenta no período.</summary>
+public sealed class PessoaSemUsoDto
+{
+    public string Email { get; init; } = "";
+    /// <summary>false = conta desativada (sem acesso ao plugin).</summary>
+    public bool Ativa { get; init; }
+    /// <summary>Último login ou validação do plugin, em UTC; null se nunca entrou.</summary>
+    public DateTime? UltimoAcessoUtc { get; init; }
+}
+
 public sealed class UsoRelatorioDto
 {
     public string De { get; init; } = "";
@@ -30,6 +40,11 @@ public sealed class UsoRelatorioDto
     public int PessoasAtivas { get; init; }
     public IReadOnlyList<FerramentaDto> Ferramentas { get; init; } = Array.Empty<FerramentaDto>();
     public IReadOnlyList<UsoPessoaDto> PorPessoa { get; init; } = Array.Empty<UsoPessoaDto>();
+    /// <summary>Total de contas cadastradas, com ou sem uso no período.</summary>
+    public int TotalContas { get; init; }
+    /// <summary>Contas sem nenhuma abertura no período, para o relatório trazer
+    /// TODAS as pessoas (pedido de 19/10/2026), inclusive quem usou zero vezes.</summary>
+    public IReadOnlyList<PessoaSemUsoDto> SemUso { get; init; } = Array.Empty<PessoaSemUsoDto>();
 }
 
 /// <summary>Intervalo já validado, inclusivo nas duas pontas.</summary>
@@ -125,8 +140,23 @@ public sealed class UsageQueryService
             })
             .ToList();
 
+        // Quem tem conta e não abriu nada no período também entra no relatório.
+        var comUso = porPessoa.Select(p => p.UserId).ToHashSet();
+        var semUso = usuarios
+            .Where(u => !comUso.Contains(u.Id))
+            .OrderBy(u => u.Email, StringComparer.OrdinalIgnoreCase)
+            .Select(u => new PessoaSemUsoDto
+            {
+                Email           = u.Email,
+                Ativa           = u.IsActive,
+                UltimoAcessoUtc = u.LastSeenAtUtc,
+            })
+            .ToList();
+
         return new UsoRelatorioDto
         {
+            TotalContas   = usuarios.Count,
+            SemUso        = semUso,
             De            = de.ToString("yyyy-MM-dd"),
             Ate           = ate.ToString("yyyy-MM-dd"),
             Dias          = periodo.Dias,

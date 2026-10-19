@@ -231,6 +231,39 @@ public sealed class ContratoUsoHistoricoTests
             (await c.GetAsync("/v1/admin/usage/pdf?dias=30")).StatusCode);
     }
 
+    // ── todas as contas, inclusive quem não usou ────────────────────────
+
+    [Fact]
+    public async Task Conta_que_nao_usou_nada_aparece_em_semUso()
+    {
+        // Pedido de 19/10/2026: o relatório traz TODAS as pessoas, inclusive
+        // quem usou zero vezes. Quem usou fica em porPessoa; quem não usou, em
+        // semUso. Ninguém aparece nas duas listas.
+        using var api = new ApiDeTeste();
+        var owner = await OwnerAsync(api);
+
+        const string parada = "parada.contrato@teste.local";
+        var criada = await owner.PostAsJsonAsync("/v1/admin/users", new { email = parada, password = "SenhaParada123456" });
+        Assert.Equal(HttpStatusCode.Created, criada.StatusCode);
+
+        await SemearAsync(owner, Hoje, 3);   // o Owner usou; a outra conta, não
+
+        var j = await CorpoAsync(await owner.GetAsync("/v1/admin/usage?dias=30"));
+
+        var semUso = j.GetProperty("semUso").EnumerateArray().ToList();
+        var dela = Assert.Single(semUso, s => s.GetProperty("email").GetString() == parada);
+        Assert.True(dela.GetProperty("ativa").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, dela.GetProperty("ultimoAcessoUtc").ValueKind);   // nunca entrou no plugin
+
+        Assert.DoesNotContain(semUso, s => s.GetProperty("email").GetString() == ApiDeTeste.OwnerEmail);
+        Assert.Contains(j.GetProperty("porPessoa").EnumerateArray(),
+            p => p.GetProperty("email").GetString() == ApiDeTeste.OwnerEmail);
+
+        // Cada conta cai em exatamente uma das listas.
+        Assert.Equal(j.GetProperty("totalContas").GetInt32(),
+            j.GetProperty("pessoasAtivas").GetInt32() + semUso.Count);
+    }
+
     // ── validação que não dá para alcançar por HTTP ──────────────────────
 
     [Fact]

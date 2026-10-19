@@ -133,18 +133,27 @@ public sealed class UsageReportPdf : IUsageReportPdf
 
             // Um relatório vazio precisa dizer que está vazio. Uma folha em
             // branco deixa a dúvida entre "ninguém usou" e "o PDF quebrou".
+            // Mesmo vazio, o relatório lista as contas: "todos os usuários,
+            // inclusive quem usou zero vezes" (pedido de 19/10/2026).
             if (r.TotalGeral == 0)
             {
                 col.Item().Text("Nenhuma abertura registrada no período.")
                     .FontSize(11).FontColor("#6b7783");
+                if (r.SemUso.Count > 0)
+                    col.Item().Element(c => SemUsoNoPeriodo(c, r.SemUso));
                 return;
             }
+
+            // "10 de 14": quantas pessoas usaram, entre todas as contas.
+            var ativas = r.TotalContas > 0
+                ? $"{Num(r.PessoasAtivas)} de {Num(r.TotalContas)}"
+                : Num(r.PessoasAtivas);
 
             col.Item().Row(row =>
             {
                 row.Spacing(10);
                 row.RelativeItem().Element(c => Kpi(c, "ABERTURAS", Num(r.TotalGeral)));
-                row.RelativeItem().Element(c => Kpi(c, "PESSOAS ATIVAS", Num(r.PessoasAtivas)));
+                row.RelativeItem().Element(c => Kpi(c, "PESSOAS ATIVAS", ativas));
                 row.RelativeItem().Element(c => Kpi(c, "FERRAMENTAS USADAS", Num(r.Ferramentas.Count)));
             });
 
@@ -157,6 +166,55 @@ public sealed class UsageReportPdf : IUsageReportPdf
             // 19/10/2026): a parte de cada pessoa fica separada do resumo.
             col.Item().PageBreak();
             col.Item().Element(c => UsoPorPessoa(c, pessoas));
+
+            // Depois das pessoas que usaram, as que não usaram, numa tabela só.
+            if (r.SemUso.Count > 0)
+                col.Item().EnsureSpace(110).Element(c => SemUsoNoPeriodo(c, r.SemUso));
+        });
+    }
+
+    /// <summary>
+    /// Contas sem nenhuma abertura no período, numa tabela só, no fim do "Uso por
+    /// pessoa". Uma tabela por pessoa aqui seria uma página de tabelas vazias; o
+    /// que importa delas é a situação da conta e quando entraram pela última vez
+    /// (conta ativa que nunca entrou, ou que parou de entrar, é o que o gestor
+    /// procura nesta lista).
+    /// </summary>
+    private static void SemUsoNoPeriodo(IContainer container, IReadOnlyList<PessoaSemUsoDto> semUso)
+    {
+        container.Column(bloco =>
+        {
+            bloco.Item().Text($"Sem uso no período ({Num(semUso.Count)})").FontSize(12).SemiBold();
+            bloco.Item().PaddingTop(2).Text("Contas que não abriram nenhuma ferramenta no período.")
+                .FontSize(8.5f).FontColor("#6b7783");
+
+            bloco.Item().PaddingTop(8).Border(1).BorderColor("#dfe3e8").Table(tabela =>
+            {
+                tabela.ColumnsDefinition(c =>
+                {
+                    c.RelativeColumn();
+                    c.ConstantColumn(80);
+                    c.ConstantColumn(130);
+                });
+
+                tabela.Header(h =>
+                {
+                    h.Cell().Element(Th).PaddingLeft(10).Text("Pessoa");
+                    h.Cell().Element(Th).Text("Conta");
+                    h.Cell().Element(Th).AlignRight().PaddingRight(10).Text("Último acesso ao plugin");
+                });
+
+                foreach (var s in semUso)
+                {
+                    tabela.Cell().Element(TdPessoa).PaddingLeft(10).Text(s.Email);
+                    tabela.Cell().Element(TdPessoa).Text(s.Ativa ? "ativa" : "desativada")
+                        .FontColor(s.Ativa ? "#1b2128" : "#a33a3a");
+                    tabela.Cell().Element(TdPessoa).AlignRight().PaddingRight(10).Text(
+                        s.UltimoAcessoUtc is { } u
+                            ? AgoraBrasilia(DateTime.SpecifyKind(u, DateTimeKind.Utc)).ToString("dd/MM/yyyy", Br)
+                            : "nunca entrou");
+                }
+            });
         });
     }
 

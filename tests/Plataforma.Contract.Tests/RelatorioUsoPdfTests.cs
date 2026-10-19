@@ -102,6 +102,31 @@ public sealed class RelatorioUsoPdfTests
     }
 
     [Fact]
+    public void Contas_sem_uso_entram_no_pdf_mesmo_com_periodo_vazio()
+    {
+        var semUso = new[]
+        {
+            new PessoaSemUsoDto { Email = "nunca@escritorio.com", Ativa = true },
+            new PessoaSemUsoDto { Email = "saiu@escritorio.com", Ativa = false, UltimoAcessoUtc = new DateTime(2026, 8, 1, 2, 0, 0, DateTimeKind.Utc) },
+        };
+
+        // Com uso de outras pessoas...
+        var comUso = Relatorio(new List<(string, string, int)> { ("ativa@escritorio.com", "pro_sheets", 5) });
+        AssertPdf(new UsageReportPdf().Gerar(new UsoRelatorioDto
+        {
+            De = comUso.De, Ate = comUso.Ate, Dias = comUso.Dias, TotalGeral = comUso.TotalGeral,
+            PessoasAtivas = 1, TotalContas = 3, Ferramentas = comUso.Ferramentas, PorPessoa = comUso.PorPessoa,
+            SemUso = semUso,
+        }));
+
+        // ...e num período em que ninguém usou nada.
+        AssertPdf(new UsageReportPdf().Gerar(new UsoRelatorioDto
+        {
+            De = "2026-10-01", Ate = "2026-10-19", Dias = 19, TotalContas = 2, SemUso = semUso,
+        }));
+    }
+
+    [Fact]
     public void Varias_pessoas_com_os_rotulos_com_simbolo_geram_o_pdf()
     {
         var slugs = new[] { "curva_para_baixo45", "alinhar_ramal_mais", "alinhar_em3d", "brotar_trechos", "pro_sheets" };

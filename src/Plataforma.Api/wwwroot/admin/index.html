@@ -300,6 +300,10 @@
       transition:transform .15s ease;
     }
     tr.usage-row.open td:first-child::before { transform:rotate(90deg); }
+    /* Conta sem nenhuma abertura no período: aparece, mas apagada. O recuo
+       acompanha o das linhas com seta, para os e-mails ficarem alinhados. */
+    tr.sem-uso td { color:var(--muted); }
+    tr.sem-uso td:first-child::before { content:""; display:inline-block; width:14px; }
     .usage-det td { background:var(--surface-2); padding:0; }
     .usage-det-in { padding:10px 16px; display:grid; gap:4px; }
     .usage-pessoa { display:flex; align-items:center; justify-content:space-between; gap:12px; font-size:13px; }
@@ -1124,7 +1128,7 @@
         ? `${diaBR(d.de)} a ${diaBR(d.ate)}`
         : 'Nenhum uso registrado no período. As máquinas só reportam a partir da versão do plugin que tem telemetria.');
 
-      renderPessoas(d.porPessoa || []);
+      renderPessoas(d.porPessoa || [], d.semUso || []);
       msg('pessoasMsg', (d.porPessoa || []).length ? `${diaBR(d.de)} a ${diaBR(d.ate)}` : '');
     }
 
@@ -1177,11 +1181,28 @@
       return lista.sort((a, b) => b.total - a.total);
     }
 
-    function renderPessoas(porPessoa) {
+    // Contas sem nenhuma abertura no período, no fim da tabela e apagadas: o
+    // relatório traz todas as pessoas, inclusive quem usou zero vezes (pedido de
+    // 19/10/2026). Sem data-i, então não abrem detalhe ao clicar.
+    function linhasSemUso(semUso) {
+      return (semUso || []).map(s =>
+        `<tr class="sem-uso">` +
+          `<td>${esc(s.email)}${s.ativa ? '' : ' (desativada)'}</td>` +
+          `<td class="right num">0</td>` +
+          `<td class="right num">0</td>` +
+          `<td>sem uso</td>` +
+        `</tr>`
+      ).join('');
+    }
+
+    function renderPessoas(porPessoa, semUso) {
       const lista = agrupaPorPessoa(porPessoa);
-      $('pessoasCount').textContent = lista.length ? '· ' + lista.length + ' pessoas' : '';
+      semUso = semUso || [];
+      $('pessoasCount').textContent = (lista.length || semUso.length)
+        ? '· ' + lista.length + ' com uso, ' + semUso.length + ' sem uso' : '';
       if (!lista.length) {
-        $('pessoasBody').innerHTML = '<tr><td colspan="4" class="empty">Ninguém abriu ferramenta no período.</td></tr>';
+        $('pessoasBody').innerHTML = '<tr><td colspan="4" class="empty">Ninguém abriu ferramenta no período.</td></tr>'
+          + linhasSemUso(semUso);
         return;
       }
       // Par linha/detalhe casado por índice, como no ranking: e-mail é texto e
@@ -1196,7 +1217,7 @@
         `<tr class="usage-det" id="pes-${i}" style="display:none"><td colspan="4">` +
           `<div class="usage-det-in">` + detalheFerramentas(r.ferramentas) + `</div>` +
         `</td></tr>`
-      ).join('');
+      ).join('') + linhasSemUso(semUso);
     }
 
     function detalheFerramentas(ferramentas) {
@@ -1296,10 +1317,11 @@
       ).join('');
     }
 
-    function renderHistPessoas(porPessoa) {
+    function renderHistPessoas(porPessoa, semUso) {
       const lista = agrupaPorPessoa(porPessoa);
       if (!lista.length) {
-        $('histPessoasBody').innerHTML = '<tr><td colspan="4" class="empty">Ninguém abriu ferramenta no período.</td></tr>';
+        $('histPessoasBody').innerHTML = '<tr><td colspan="4" class="empty">Ninguém abriu ferramenta no período.</td></tr>'
+          + linhasSemUso(semUso);
         return;
       }
       $('histPessoasBody').innerHTML = lista.map((r, i) =>
@@ -1312,7 +1334,7 @@
         `<tr class="usage-det" id="hpes-${i}" style="display:none"><td colspan="4">` +
           `<div class="usage-det-in">` + detalheFerramentas(r.ferramentas) + `</div>` +
         `</td></tr>`
-      ).join('');
+      ).join('') + linhasSemUso(semUso);
     }
 
     async function erroHist(res, padrao) {
@@ -1333,7 +1355,7 @@
           (histPorComando[x.comando] = histPorComando[x.comando] || []).push(x);
         });
         renderHistFerramentas(d.ferramentas || []);
-        renderHistPessoas(d.porPessoa || []);
+        renderHistPessoas(d.porPessoa || [], d.semUso || []);
         msg('histMsg', diaBR(d.de) + ' a ' + diaBR(d.ate) + ' · '
           + d.totalGeral.toLocaleString('pt-BR') + ' abertura(s)');
       } catch (e) { msg('histMsg', 'Sessão expirada — entre de novo.', 'err'); }
