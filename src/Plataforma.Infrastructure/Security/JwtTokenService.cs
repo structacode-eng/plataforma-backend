@@ -17,8 +17,10 @@ public sealed class JwtOptions
     public string Key { get; set; } = "";
     public int AccessTokenMinutes { get; set; } = 15;
 
-    /// <summary>Validade do token de sessão do cliente desktop (o gate revalida antes disso).</summary>
-    public int DesktopSessionDays { get; set; } = 7;
+    /// <summary>Validade do token de sessão do cliente desktop (o gate revalida antes disso).
+    /// 30 dias desde 21/10/2026 (eram 7): com a renovação no /auth/me, quem usa o plugin
+    /// não perde o login; só quem passa 30 dias sem usar precisa entrar de novo.</summary>
+    public int DesktopSessionDays { get; set; } = 30;
 }
 
 public sealed class JwtTokenService : IJwtTokenService
@@ -31,6 +33,8 @@ public sealed class JwtTokenService : IJwtTokenService
 
     public (string token, DateTime expiresAtUtc) CreateDesktopToken(User user)
         => BuildToken(user, DateTime.UtcNow.AddDays(_opt.DesktopSessionDays));
+
+    public TimeSpan DesktopSessionLength => TimeSpan.FromDays(_opt.DesktopSessionDays);
 
     private (string token, DateTime expiresAtUtc) BuildToken(User user, DateTime expires)
     {

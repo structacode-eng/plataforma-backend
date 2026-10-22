@@ -20,11 +20,20 @@ namespace Plataforma.Contract.Tests;
 /// SQL. Consultas continuam passando pelo mesmo EF Core e pelos mesmos
 /// repositórios.</para>
 /// </summary>
-public sealed class ApiDeTeste : WebApplicationFactory<Plataforma.Api.Controllers.HealthController>
+public class ApiDeTeste : WebApplicationFactory<Plataforma.Api.Controllers.HealthController>
 {
     /// <summary>Credenciais do Owner semeado no boot (DataSeeder).</summary>
     public const string OwnerEmail = "owner.contrato@teste.local";
     public const string OwnerSenha = "SenhaDeContrato123";
+
+    /// <summary>JWT desta API de teste: os testes de renovação assinam tokens com eles.</summary>
+    public const string ChaveJwt = "chave-de-teste-com-tamanho-suficiente-para-hmac-sha256-nao-reclamar";
+    public const string EmissorJwt = "plataforma-plugins";
+    public const string PublicoJwt = "plataforma-clients";
+
+    /// <summary>Gancho para uma variação da API trocar algum serviço (ex.: simular falha
+    /// no banco). Roda depois da troca do banco pelo provedor em memória.</summary>
+    protected virtual void ServicosExtras(IServiceCollection services) { }
 
     protected override IHost CreateHost(IHostBuilder builder)
     {
@@ -34,9 +43,9 @@ public sealed class ApiDeTeste : WebApplicationFactory<Plataforma.Api.Controller
         builder.ConfigureHostConfiguration(cfg => cfg.AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["ConnectionStrings:Default"] = "Host=nao-usado;Database=nao-usado;Username=x;Password=x",
-            ["Jwt:Key"] = "chave-de-teste-com-tamanho-suficiente-para-hmac-sha256-nao-reclamar",
-            ["Jwt:Issuer"] = "plataforma-plugins",
-            ["Jwt:Audience"] = "plataforma-clients",
+            ["Jwt:Key"] = ChaveJwt,
+            ["Jwt:Issuer"] = EmissorJwt,
+            ["Jwt:Audience"] = PublicoJwt,
             ["Seed:Owner:Email"] = OwnerEmail,
             ["Seed:Owner:Password"] = OwnerSenha,
         }));
@@ -57,6 +66,8 @@ public sealed class ApiDeTeste : WebApplicationFactory<Plataforma.Api.Controller
                 o.ConfigureWarnings(w => w.Ignore(
                     Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning));
             });
+
+            ServicosExtras(services);
         });
 
         return base.CreateHost(builder);

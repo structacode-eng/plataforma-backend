@@ -26,7 +26,13 @@ public sealed class CompatAuthController : ControllerBase
     public const string HeaderProduto = "X-Filippon-Product";
 
     private readonly DesktopAuthService _svc;
-    public CompatAuthController(DesktopAuthService svc) => _svc = svc;
+    private readonly ILogger<CompatAuthController> _log;
+
+    public CompatAuthController(DesktopAuthService svc, ILogger<CompatAuthController> log)
+    {
+        _svc = svc;
+        _log = log;
+    }
 
     private string? Produto()
         => Request.Headers.TryGetValue(HeaderProduto, out var v) ? v.ToString() : null;
@@ -52,9 +58,28 @@ public sealed class CompatAuthController : ControllerBase
     [HttpGet("/auth/me")]
     public async Task<IActionResult> Me(CancellationToken ct)
     {
-        var me = await _svc.GetMeAsync(User.GetUserId(), Produto(), ct);
+        var me = await _svc.GetMeAsync(User.GetUserId(), Produto(), tokenExpiresAtUtc: VencimentoDoToken(), ct: ct);
         if (me is null) return Unauthorized();
-        return Ok(new DesktopMeResponse { Email = me.Email, Name = me.Name, Active = me.Active });
+
+        if (me.HeartbeatFailure is not null)
+            _log.LogWarning(me.HeartbeatFailure, "auth/me: falha ao gravar o sinal de vida; validação seguiu.");
+
+        return Ok(new DesktopMeResponse
+        {
+            Email = me.Email,
+            Name = me.Name,
+            Active = me.Active,
+            AccessToken = me.RenewedToken,
+            TokenType = me.RenewedToken is null ? null : "Bearer",
+            ExpiresAt = me.RenewedExpiresAtUtc?.ToString("o"),
+        });
+    }
+
+    /// <summary>Vencimento do token desta requisição (claim <c>exp</c>, segundos Unix).</summary>
+    private DateTime? VencimentoDoToken()
+    {
+        var exp = User.FindFirst("exp")?.Value;
+        return long.TryParse(exp, out var s) ? DateTimeOffset.FromUnixTimeSeconds(s).UtcDateTime : null;
     }
 
     [HttpGet("/health")]
@@ -88,4 +113,15 @@ public sealed class DesktopMeResponse
     [JsonPropertyName("email")] public string Email { get; set; } = "";
     [JsonPropertyName("name")] public string Name { get; set; } = "";
     [JsonPropertyName("active")] public bool Active { get; set; }
+
+    // Renovação do login (desde 21/10/2026). Só aparecem quando há token novo, e só
+    // para o plugin do Revit; mesmos nomes do /auth/login. Quem não conhece ignora.
+    [JsonPropertyName("access_token"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? AccessToken { get; set; }
+
+    [JsonPropertyName("token_type"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TokenType { get; set; }
+
+    [JsonPropertyName("expires_at"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ExpiresAt { get; set; }
 }

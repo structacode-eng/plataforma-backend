@@ -17,6 +17,15 @@ public sealed class DesktopMe
     public string Email { get; init; } = "";
     public string Name { get; init; } = "";
     public bool Active { get; init; }
+
+    /// <summary>Token novo para o plugin do Revit guardar no lugar do atual (null quando
+    /// não precisa renovar). O plugin 2.7.1 e anteriores ignoram.</summary>
+    public string? RenewedToken { get; init; }
+    public DateTime? RenewedExpiresAtUtc { get; init; }
+
+    /// <summary>Falha ao gravar o sinal de vida. Não derruba a validação: só vai para o
+    /// log do servidor.</summary>
+    public Exception? HeartbeatFailure { get; init; }
 }
 
 /// <summary>
@@ -97,20 +106,60 @@ public sealed class DesktopAuthService
         });
     }
 
-    public async Task<DesktopMe?> GetMeAsync(Guid userId, string? produto = null, CancellationToken ct = default)
+    /// <summary>Produto que recebe o token renovado. Só o plugin do Revit lê os campos
+    /// novos; para os demais o /auth/me continua exatamente como era.</summary>
+    public const string ProdutoComRenovacao = "revit-plugin";
+
+    /// <param name="tokenExpiresAtUtc">Vencimento do token que fez a chamada (claim
+    /// <c>exp</c>). Faltando mais de um dia para completar a validade cheia, o plugin do
+    /// Revit recebe um token novo: o login se renova com o uso e só vence para quem passa
+    /// a validade inteira sem abrir o plugin.</param>
+    public async Task<DesktopMe?> GetMeAsync(
+        Guid userId, string? produto = null, DateTime? tokenExpiresAtUtc = null, CancellationToken ct = default)
     {
         var user = await _users.GetByIdAsync(userId, ct);
         if (user is null) return null;
 
         // Heartbeat: marca atividade (throttle de 5 min para não escrever a cada chamada).
+        // É informativo: se a gravação falhar (banco acordando, colisão de duas
+        // validações ao mesmo tempo), a validação segue. Antes virava erro 500 e o
+        // plugin pedia a senha de novo com o login válido.
+        Exception? falhaHeartbeat = null;
         if (user.LastSeenAtUtc is null || (DateTime.UtcNow - user.LastSeenAtUtc.Value).TotalMinutes >= 5)
         {
-            user.MarkSeen();
-            await RegistrarUsoAsync(user.Id, produto, ehLogin: false, ct);
-            await _uow.SaveChangesAsync(ct);
+            try
+            {
+                user.MarkSeen();
+                await RegistrarUsoAsync(user.Id, produto, ehLogin: false, ct);
+                await _uow.SaveChangesAsync(ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                falhaHeartbeat = ex;
+            }
         }
 
-        return new DesktopMe { Email = user.Email, Name = NameFromEmail(user.Email), Active = user.IsActive };
+        string? renovado = null;
+        DateTime? renovadoExpira = null;
+        if (user.IsActive
+            && tokenExpiresAtUtc is not null
+            && UserProductAccess.Normalize(produto) == ProdutoComRenovacao
+            && tokenExpiresAtUtc.Value - DateTime.UtcNow < _jwt.DesktopSessionLength - TimeSpan.FromDays(1))
+        {
+            var (token, expira) = _jwt.CreateDesktopToken(user);
+            renovado = token;
+            renovadoExpira = expira;
+        }
+
+        return new DesktopMe
+        {
+            Email = user.Email,
+            Name = NameFromEmail(user.Email),
+            Active = user.IsActive,
+            RenewedToken = renovado,
+            RenewedExpiresAtUtc = renovadoExpira,
+            HeartbeatFailure = falhaHeartbeat,
+        };
     }
 
     private static string NameFromEmail(string email)

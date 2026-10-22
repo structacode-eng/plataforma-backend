@@ -14,6 +14,10 @@ public interface IJwtTokenService
     /// Usado pelo gate do plugin, que revalida periodicamente via /auth/me.</summary>
     (string token, DateTime expiresAtUtc) CreateDesktopToken(User user);
 
+    /// <summary>Validade de um token de sessão desktop recém-emitido. O /auth/me usa
+    /// para decidir quando entregar um token renovado.</summary>
+    TimeSpan DesktopSessionLength { get; }
+
     string GenerateRefreshToken();
     string HashRefreshToken(string rawToken);
 }
